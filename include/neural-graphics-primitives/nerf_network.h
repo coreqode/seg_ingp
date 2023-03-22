@@ -152,6 +152,7 @@ public:
 		// printf("\n m_density encoding %d", m_dir_encoding->preferred_output_layout() == tcnn::RM ? 1: 0);
 		// printf("\ndensity network output layout %d", density_network_output.layout() == tcnn::CM ? 1 : 0 );
 		// printf("\n size of density network output %d x %d", density_network_output.rows(), density_network_output.cols());
+		//
 		// debug_print<network_precision_t>(density_network_output, density_network_output.n_bytes(), 0, density_network_output.cols(), 16);
 		// printf("\n total elements in the density network output %d", density_network_output.n_elements());
 		// exit(0);
