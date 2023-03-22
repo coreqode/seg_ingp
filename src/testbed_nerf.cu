@@ -1339,6 +1339,8 @@ __global__ void generate_training_samples_nerf(
 	numsteps_out[ray_idx*2+1] = base;
 
 	vec3 warped_dir = warp_direction(ray_d_normalized);
+	// printf("\n ray_d_normalized %f %f %f", ray_d_normalized.x, ray_d_normalized.y, ray_d_normalized.z);
+	// printf("\n warped_dir %f %f %f", warped_dir.x, warped_dir.y, warped_dir.z);
 	t=startt;
 	j=0;
 	while (aabb.contains(pos = ray_unnormalized.o + t * ray_d_normalized) && j < numsteps) {
@@ -2985,29 +2987,29 @@ void Testbed::train_nerf(uint32_t target_batch_size, bool get_loss_scalar, cudaS
 		return;
 	}
 
-	if (m_nerf.training.include_sharpness_in_error) {
-		size_t n_cells = NERF_GRID_N_CELLS() * NERF_CASCADES();
-		if (m_nerf.training.sharpness_grid.size() < n_cells) {
-			m_nerf.training.sharpness_grid.enlarge(NERF_GRID_N_CELLS() * NERF_CASCADES());
-			CUDA_CHECK_THROW(cudaMemsetAsync(m_nerf.training.sharpness_grid.data(), 0, m_nerf.training.sharpness_grid.get_bytes(), stream));
-		}
+	// if (m_nerf.training.include_sharpness_in_error) {
+	// 	size_t n_cells = NERF_GRID_N_CELLS() * NERF_CASCADES();
+	// 	if (m_nerf.training.sharpness_grid.size() < n_cells) {
+	// 		m_nerf.training.sharpness_grid.enlarge(NERF_GRID_N_CELLS() * NERF_CASCADES());
+	// 		CUDA_CHECK_THROW(cudaMemsetAsync(m_nerf.training.sharpness_grid.data(), 0, m_nerf.training.sharpness_grid.get_bytes(), stream));
+	// 	}
 
-		if (m_training_step == 0) {
-			CUDA_CHECK_THROW(cudaMemsetAsync(m_nerf.training.sharpness_grid.data(), 0, m_nerf.training.sharpness_grid.get_bytes(), stream));
-		} else {
-			linear_kernel(decay_sharpness_grid_nerf, 0, stream, m_nerf.training.sharpness_grid.size(), 0.95f, m_nerf.training.sharpness_grid.data());
-		}
-	}
+	// 	if (m_training_step == 0) {
+	// 		CUDA_CHECK_THROW(cudaMemsetAsync(m_nerf.training.sharpness_grid.data(), 0, m_nerf.training.sharpness_grid.get_bytes(), stream));
+	// 	} else {
+	// 		linear_kernel(decay_sharpness_grid_nerf, 0, stream, m_nerf.training.sharpness_grid.size(), 0.95f, m_nerf.training.sharpness_grid.data());
+	// 	}
+	// }
 	m_nerf.training.counters_rgb.prepare_for_training_steps(stream);
 
-	if (m_nerf.training.n_steps_since_cam_update == 0) {
-		CUDA_CHECK_THROW(cudaMemsetAsync(m_nerf.training.cam_pos_gradient_gpu.data(), 0, m_nerf.training.cam_pos_gradient_gpu.get_bytes(), stream));
-		CUDA_CHECK_THROW(cudaMemsetAsync(m_nerf.training.cam_rot_gradient_gpu.data(), 0, m_nerf.training.cam_rot_gradient_gpu.get_bytes(), stream));
-		CUDA_CHECK_THROW(cudaMemsetAsync(m_nerf.training.cam_exposure_gradient_gpu.data(), 0, m_nerf.training.cam_exposure_gradient_gpu.get_bytes(), stream));
-		CUDA_CHECK_THROW(cudaMemsetAsync(m_distortion.map->gradients(), 0, sizeof(float)*m_distortion.map->n_params(), stream));
-		CUDA_CHECK_THROW(cudaMemsetAsync(m_distortion.map->gradient_weights(), 0, sizeof(float)*m_distortion.map->n_params(), stream));
-		CUDA_CHECK_THROW(cudaMemsetAsync(m_nerf.training.cam_focal_length_gradient_gpu.data(), 0, m_nerf.training.cam_focal_length_gradient_gpu.get_bytes(), stream));
-	}
+	// if (m_nerf.training.n_steps_since_cam_update == 0) {
+	// 	CUDA_CHECK_THROW(cudaMemsetAsync(m_nerf.training.cam_pos_gradient_gpu.data(), 0, m_nerf.training.cam_pos_gradient_gpu.get_bytes(), stream));
+	// 	CUDA_CHECK_THROW(cudaMemsetAsync(m_nerf.training.cam_rot_gradient_gpu.data(), 0, m_nerf.training.cam_rot_gradient_gpu.get_bytes(), stream));
+	// 	CUDA_CHECK_THROW(cudaMemsetAsync(m_nerf.training.cam_exposure_gradient_gpu.data(), 0, m_nerf.training.cam_exposure_gradient_gpu.get_bytes(), stream));
+	// 	CUDA_CHECK_THROW(cudaMemsetAsync(m_distortion.map->gradients(), 0, sizeof(float)*m_distortion.map->n_params(), stream));
+	// 	CUDA_CHECK_THROW(cudaMemsetAsync(m_distortion.map->gradient_weights(), 0, sizeof(float)*m_distortion.map->n_params(), stream));
+	// 	CUDA_CHECK_THROW(cudaMemsetAsync(m_nerf.training.cam_focal_length_gradient_gpu.data(), 0, m_nerf.training.cam_focal_length_gradient_gpu.get_bytes(), stream));
+	// }
 
 	bool train_extra_dims = m_nerf.training.dataset.n_extra_learnable_dims > 0 && m_nerf.training.optimize_extra_dims;
 	uint32_t n_extra_dims = m_nerf.training.dataset.n_extra_dims();
@@ -3029,7 +3031,6 @@ void Testbed::train_nerf(uint32_t target_batch_size, bool get_loss_scalar, cudaS
 	if (envmap_gradient) {
 		CUDA_CHECK_THROW(cudaMemsetAsync(envmap_gradient, 0, sizeof(float)*m_envmap.envmap->n_params(), stream));
 	}
-
 
 	train_nerf_step(target_batch_size, m_nerf.training.counters_rgb, stream);
 
@@ -3054,164 +3055,164 @@ void Testbed::train_nerf(uint32_t target_batch_size, bool get_loss_scalar, cudaS
 	}
 
 	// Compute CDFs from the error map
-	m_nerf.training.n_steps_since_error_map_update += 1;
+	// m_nerf.training.n_steps_since_error_map_update += 1;
 	// This is low-overhead enough to warrant always being on.
 	// It makes for useful visualizations of the training error.
-	bool accumulate_error = true;
-	if (accumulate_error && m_nerf.training.n_steps_since_error_map_update >= m_nerf.training.n_steps_between_error_map_updates) {
-		m_nerf.training.error_map.cdf_resolution = m_nerf.training.error_map.resolution;
-		m_nerf.training.error_map.cdf_x_cond_y.resize(compMul(m_nerf.training.error_map.cdf_resolution) * m_nerf.training.dataset.n_images);
-		m_nerf.training.error_map.cdf_y.resize(m_nerf.training.error_map.cdf_resolution.y * m_nerf.training.dataset.n_images);
-		m_nerf.training.error_map.cdf_img.resize(m_nerf.training.dataset.n_images);
+	// bool accumulate_error = true;
+	// if (accumulate_error && m_nerf.training.n_steps_since_error_map_update >= m_nerf.training.n_steps_between_error_map_updates) {
+	// 	m_nerf.training.error_map.cdf_resolution = m_nerf.training.error_map.resolution;
+	// 	m_nerf.training.error_map.cdf_x_cond_y.resize(compMul(m_nerf.training.error_map.cdf_resolution) * m_nerf.training.dataset.n_images);
+	// 	m_nerf.training.error_map.cdf_y.resize(m_nerf.training.error_map.cdf_resolution.y * m_nerf.training.dataset.n_images);
+	// 	m_nerf.training.error_map.cdf_img.resize(m_nerf.training.dataset.n_images);
 
-		CUDA_CHECK_THROW(cudaMemsetAsync(m_nerf.training.error_map.cdf_x_cond_y.data(), 0, m_nerf.training.error_map.cdf_x_cond_y.get_bytes(), stream));
-		CUDA_CHECK_THROW(cudaMemsetAsync(m_nerf.training.error_map.cdf_y.data(), 0, m_nerf.training.error_map.cdf_y.get_bytes(), stream));
-		CUDA_CHECK_THROW(cudaMemsetAsync(m_nerf.training.error_map.cdf_img.data(), 0, m_nerf.training.error_map.cdf_img.get_bytes(), stream));
+	// 	CUDA_CHECK_THROW(cudaMemsetAsync(m_nerf.training.error_map.cdf_x_cond_y.data(), 0, m_nerf.training.error_map.cdf_x_cond_y.get_bytes(), stream));
+	// 	CUDA_CHECK_THROW(cudaMemsetAsync(m_nerf.training.error_map.cdf_y.data(), 0, m_nerf.training.error_map.cdf_y.get_bytes(), stream));
+	// 	CUDA_CHECK_THROW(cudaMemsetAsync(m_nerf.training.error_map.cdf_img.data(), 0, m_nerf.training.error_map.cdf_img.get_bytes(), stream));
 
-		const dim3 threads = { 16, 8, 1 };
-		const dim3 blocks = { div_round_up((uint32_t)m_nerf.training.error_map.cdf_resolution.y, threads.x), div_round_up((uint32_t)m_nerf.training.dataset.n_images, threads.y), 1 };
-		construct_cdf_2d<<<blocks, threads, 0, stream>>>(
-			m_nerf.training.dataset.n_images, m_nerf.training.error_map.cdf_resolution.y, m_nerf.training.error_map.cdf_resolution.x,
-			m_nerf.training.error_map.data.data(),
-			m_nerf.training.error_map.cdf_x_cond_y.data(),
-			m_nerf.training.error_map.cdf_y.data()
-		);
-		linear_kernel(construct_cdf_1d, 0, stream,
-			m_nerf.training.dataset.n_images,
-			m_nerf.training.error_map.cdf_resolution.y,
-			m_nerf.training.error_map.cdf_y.data(),
-			m_nerf.training.error_map.cdf_img.data()
-		);
+	// 	const dim3 threads = { 16, 8, 1 };
+	// 	const dim3 blocks = { div_round_up((uint32_t)m_nerf.training.error_map.cdf_resolution.y, threads.x), div_round_up((uint32_t)m_nerf.training.dataset.n_images, threads.y), 1 };
+	// 	construct_cdf_2d<<<blocks, threads, 0, stream>>>(
+	// 		m_nerf.training.dataset.n_images, m_nerf.training.error_map.cdf_resolution.y, m_nerf.training.error_map.cdf_resolution.x,
+	// 		m_nerf.training.error_map.data.data(),
+	// 		m_nerf.training.error_map.cdf_x_cond_y.data(),
+	// 		m_nerf.training.error_map.cdf_y.data()
+	// 	);
+	// 	linear_kernel(construct_cdf_1d, 0, stream,
+	// 		m_nerf.training.dataset.n_images,
+	// 		m_nerf.training.error_map.cdf_resolution.y,
+	// 		m_nerf.training.error_map.cdf_y.data(),
+	// 		m_nerf.training.error_map.cdf_img.data()
+	// 	);
 
-		// Compute image CDF on the CPU. It's single-threaded anyway. No use parallelizing.
-		m_nerf.training.error_map.pmf_img_cpu.resize(m_nerf.training.error_map.cdf_img.size());
-		m_nerf.training.error_map.cdf_img.copy_to_host(m_nerf.training.error_map.pmf_img_cpu);
-		std::vector<float> cdf_img_cpu = m_nerf.training.error_map.pmf_img_cpu; // Copy unnormalized PDF into CDF buffer
-		float cum = 0;
-		for (float& f : cdf_img_cpu) {
-			cum += f;
-			f = cum;
-		}
-		float norm = 1.0f / cum;
-		for (size_t i = 0; i < cdf_img_cpu.size(); ++i) {
-			constexpr float MIN_PMF = 0.1f;
-			m_nerf.training.error_map.pmf_img_cpu[i] = (1.0f - MIN_PMF) * m_nerf.training.error_map.pmf_img_cpu[i] * norm + MIN_PMF / (float)m_nerf.training.dataset.n_images;
-			cdf_img_cpu[i] = (1.0f - MIN_PMF) * cdf_img_cpu[i] * norm + MIN_PMF * (float)(i+1) / (float)m_nerf.training.dataset.n_images;
-		}
-		m_nerf.training.error_map.cdf_img.copy_from_host(cdf_img_cpu);
+	// 	// Compute image CDF on the CPU. It's single-threaded anyway. No use parallelizing.
+	// 	m_nerf.training.error_map.pmf_img_cpu.resize(m_nerf.training.error_map.cdf_img.size());
+	// 	m_nerf.training.error_map.cdf_img.copy_to_host(m_nerf.training.error_map.pmf_img_cpu);
+	// 	std::vector<float> cdf_img_cpu = m_nerf.training.error_map.pmf_img_cpu; // Copy unnormalized PDF into CDF buffer
+	// 	float cum = 0;
+	// 	for (float& f : cdf_img_cpu) {
+	// 		cum += f;
+	// 		f = cum;
+	// 	}
+	// 	float norm = 1.0f / cum;
+	// 	for (size_t i = 0; i < cdf_img_cpu.size(); ++i) {
+	// 		constexpr float MIN_PMF = 0.1f;
+	// 		m_nerf.training.error_map.pmf_img_cpu[i] = (1.0f - MIN_PMF) * m_nerf.training.error_map.pmf_img_cpu[i] * norm + MIN_PMF / (float)m_nerf.training.dataset.n_images;
+	// 		cdf_img_cpu[i] = (1.0f - MIN_PMF) * cdf_img_cpu[i] * norm + MIN_PMF * (float)(i+1) / (float)m_nerf.training.dataset.n_images;
+	// 	}
+	// 	m_nerf.training.error_map.cdf_img.copy_from_host(cdf_img_cpu);
 
-		// Reset counters and decrease update rate.
-		m_nerf.training.n_steps_since_error_map_update = 0;
-		m_nerf.training.n_rays_since_error_map_update = 0;
-		m_nerf.training.error_map.is_cdf_valid = true;
+	// 	// Reset counters and decrease update rate.
+	// 	m_nerf.training.n_steps_since_error_map_update = 0;
+	// 	m_nerf.training.n_rays_since_error_map_update = 0;
+	// 	m_nerf.training.error_map.is_cdf_valid = true;
 
-		m_nerf.training.n_steps_between_error_map_updates = (uint32_t)(m_nerf.training.n_steps_between_error_map_updates * 1.5f);
-	}
+	// 	m_nerf.training.n_steps_between_error_map_updates = (uint32_t)(m_nerf.training.n_steps_between_error_map_updates * 1.5f);
+	// }
 
 	// Get extrinsics gradients
-	m_nerf.training.n_steps_since_cam_update += 1;
+	// m_nerf.training.n_steps_since_cam_update += 1;
 
-	if (train_extra_dims) {
-		std::vector<float> extra_dims_gradient(m_nerf.training.extra_dims_gradient_gpu.size());
-		m_nerf.training.extra_dims_gradient_gpu.copy_to_host(extra_dims_gradient);
+	// if (train_extra_dims) {
+	// 	std::vector<float> extra_dims_gradient(m_nerf.training.extra_dims_gradient_gpu.size());
+	// 	m_nerf.training.extra_dims_gradient_gpu.copy_to_host(extra_dims_gradient);
 
-		// Optimization step
-		for (uint32_t i = 0; i < m_nerf.training.n_images_for_training; ++i) {
-			std::vector<float> gradient(n_extra_dims);
-			for (uint32_t j = 0; j < n_extra_dims; ++j) {
-				gradient[j] = extra_dims_gradient[i * n_extra_dims + j] / LOSS_SCALE;
-			}
+	// 	// Optimization step
+	// 	for (uint32_t i = 0; i < m_nerf.training.n_images_for_training; ++i) {
+	// 		std::vector<float> gradient(n_extra_dims);
+	// 		for (uint32_t j = 0; j < n_extra_dims; ++j) {
+	// 			gradient[j] = extra_dims_gradient[i * n_extra_dims + j] / LOSS_SCALE;
+	// 		}
 
-			//float l2_reg = 1e-4f;
-			//gradient += m_nerf.training.extra_dims_opt[i].variable() * l2_reg;
+	// 		//float l2_reg = 1e-4f;
+	// 		//gradient += m_nerf.training.extra_dims_opt[i].variable() * l2_reg;
 
-			m_nerf.training.extra_dims_opt[i].set_learning_rate(m_optimizer->learning_rate());
-			m_nerf.training.extra_dims_opt[i].step(gradient);
-		}
+	// 		m_nerf.training.extra_dims_opt[i].set_learning_rate(m_optimizer->learning_rate());
+	// 		m_nerf.training.extra_dims_opt[i].step(gradient);
+	// 	}
 
-		m_nerf.training.update_extra_dims();
-	}
+	// 	m_nerf.training.update_extra_dims();
+	// }
 
-	bool train_camera = m_nerf.training.optimize_extrinsics || m_nerf.training.optimize_distortion || m_nerf.training.optimize_focal_length || m_nerf.training.optimize_exposure;
-	if (train_camera && m_nerf.training.n_steps_since_cam_update >= m_nerf.training.n_steps_between_cam_updates) {
-		float per_camera_loss_scale = (float)m_nerf.training.n_images_for_training / LOSS_SCALE / (float)m_nerf.training.n_steps_between_cam_updates;
+	// bool train_camera = m_nerf.training.optimize_extrinsics || m_nerf.training.optimize_distortion || m_nerf.training.optimize_focal_length || m_nerf.training.optimize_exposure;
+	// if (train_camera && m_nerf.training.n_steps_since_cam_update >= m_nerf.training.n_steps_between_cam_updates) {
+	// 	float per_camera_loss_scale = (float)m_nerf.training.n_images_for_training / LOSS_SCALE / (float)m_nerf.training.n_steps_between_cam_updates;
 
-		if (m_nerf.training.optimize_extrinsics) {
-			CUDA_CHECK_THROW(cudaMemcpyAsync(m_nerf.training.cam_pos_gradient.data(), m_nerf.training.cam_pos_gradient_gpu.data(), m_nerf.training.cam_pos_gradient_gpu.get_bytes(), cudaMemcpyDeviceToHost, stream));
-			CUDA_CHECK_THROW(cudaMemcpyAsync(m_nerf.training.cam_rot_gradient.data(), m_nerf.training.cam_rot_gradient_gpu.data(), m_nerf.training.cam_rot_gradient_gpu.get_bytes(), cudaMemcpyDeviceToHost, stream));
+	// 	if (m_nerf.training.optimize_extrinsics) {
+	// 		CUDA_CHECK_THROW(cudaMemcpyAsync(m_nerf.training.cam_pos_gradient.data(), m_nerf.training.cam_pos_gradient_gpu.data(), m_nerf.training.cam_pos_gradient_gpu.get_bytes(), cudaMemcpyDeviceToHost, stream));
+	// 		CUDA_CHECK_THROW(cudaMemcpyAsync(m_nerf.training.cam_rot_gradient.data(), m_nerf.training.cam_rot_gradient_gpu.data(), m_nerf.training.cam_rot_gradient_gpu.get_bytes(), cudaMemcpyDeviceToHost, stream));
 
-			CUDA_CHECK_THROW(cudaStreamSynchronize(stream));
+	// 		CUDA_CHECK_THROW(cudaStreamSynchronize(stream));
 
-			// Optimization step
-			for (uint32_t i = 0; i < m_nerf.training.n_images_for_training; ++i) {
-				vec3 pos_gradient = m_nerf.training.cam_pos_gradient[i] * per_camera_loss_scale;
-				vec3 rot_gradient = m_nerf.training.cam_rot_gradient[i] * per_camera_loss_scale;
+	// 		// Optimization step
+	// 		for (uint32_t i = 0; i < m_nerf.training.n_images_for_training; ++i) {
+	// 			vec3 pos_gradient = m_nerf.training.cam_pos_gradient[i] * per_camera_loss_scale;
+	// 			vec3 rot_gradient = m_nerf.training.cam_rot_gradient[i] * per_camera_loss_scale;
 
-				float l2_reg = m_nerf.training.extrinsic_l2_reg;
-				pos_gradient += m_nerf.training.cam_pos_offset[i].variable() * l2_reg;
-				rot_gradient += m_nerf.training.cam_rot_offset[i].variable() * l2_reg;
+	// 			float l2_reg = m_nerf.training.extrinsic_l2_reg;
+	// 			pos_gradient += m_nerf.training.cam_pos_offset[i].variable() * l2_reg;
+	// 			rot_gradient += m_nerf.training.cam_rot_offset[i].variable() * l2_reg;
 
-				m_nerf.training.cam_pos_offset[i].set_learning_rate(std::max(m_nerf.training.extrinsic_learning_rate * std::pow(0.33f, (float)(m_nerf.training.cam_pos_offset[i].step() / 128)), m_optimizer->learning_rate()/1000.0f));
-				m_nerf.training.cam_rot_offset[i].set_learning_rate(std::max(m_nerf.training.extrinsic_learning_rate * std::pow(0.33f, (float)(m_nerf.training.cam_rot_offset[i].step() / 128)), m_optimizer->learning_rate()/1000.0f));
+	// 			m_nerf.training.cam_pos_offset[i].set_learning_rate(std::max(m_nerf.training.extrinsic_learning_rate * std::pow(0.33f, (float)(m_nerf.training.cam_pos_offset[i].step() / 128)), m_optimizer->learning_rate()/1000.0f));
+	// 			m_nerf.training.cam_rot_offset[i].set_learning_rate(std::max(m_nerf.training.extrinsic_learning_rate * std::pow(0.33f, (float)(m_nerf.training.cam_rot_offset[i].step() / 128)), m_optimizer->learning_rate()/1000.0f));
 
-				m_nerf.training.cam_pos_offset[i].step(pos_gradient);
-				m_nerf.training.cam_rot_offset[i].step(rot_gradient);
-			}
+	// 			m_nerf.training.cam_pos_offset[i].step(pos_gradient);
+	// 			m_nerf.training.cam_rot_offset[i].step(rot_gradient);
+	// 		}
 
-			m_nerf.training.update_transforms();
-		}
+	// 		m_nerf.training.update_transforms();
+	// 	}
 
-		if (m_nerf.training.optimize_distortion) {
-			linear_kernel(safe_divide, 0, stream,
-				m_distortion.map->n_params(),
-				m_distortion.map->gradients(),
-				m_distortion.map->gradient_weights()
-			);
-			m_distortion.trainer->optimizer_step(stream, LOSS_SCALE*(float)m_nerf.training.n_steps_between_cam_updates);
-		}
+	// 	if (m_nerf.training.optimize_distortion) {
+	// 		linear_kernel(safe_divide, 0, stream,
+	// 			m_distortion.map->n_params(),
+	// 			m_distortion.map->gradients(),
+	// 			m_distortion.map->gradient_weights()
+	// 		);
+	// 		m_distortion.trainer->optimizer_step(stream, LOSS_SCALE*(float)m_nerf.training.n_steps_between_cam_updates);
+	// 	}
 
-		if (m_nerf.training.optimize_focal_length) {
-			CUDA_CHECK_THROW(cudaMemcpyAsync(&m_nerf.training.cam_focal_length_gradient, m_nerf.training.cam_focal_length_gradient_gpu.data(), m_nerf.training.cam_focal_length_gradient_gpu.get_bytes(), cudaMemcpyDeviceToHost, stream));
-			CUDA_CHECK_THROW(cudaStreamSynchronize(stream));
-			vec2 focal_length_gradient = m_nerf.training.cam_focal_length_gradient * per_camera_loss_scale;
-			float l2_reg = m_nerf.training.intrinsic_l2_reg;
-			focal_length_gradient += m_nerf.training.cam_focal_length_offset.variable() * l2_reg;
-			m_nerf.training.cam_focal_length_offset.set_learning_rate(std::max(1e-3f * std::pow(0.33f, (float)(m_nerf.training.cam_focal_length_offset.step() / 128)),m_optimizer->learning_rate() / 1000.0f));
-			m_nerf.training.cam_focal_length_offset.step(focal_length_gradient);
-			m_nerf.training.dataset.update_metadata();
-		}
+	// 	if (m_nerf.training.optimize_focal_length) {
+	// 		CUDA_CHECK_THROW(cudaMemcpyAsync(&m_nerf.training.cam_focal_length_gradient, m_nerf.training.cam_focal_length_gradient_gpu.data(), m_nerf.training.cam_focal_length_gradient_gpu.get_bytes(), cudaMemcpyDeviceToHost, stream));
+	// 		CUDA_CHECK_THROW(cudaStreamSynchronize(stream));
+	// 		vec2 focal_length_gradient = m_nerf.training.cam_focal_length_gradient * per_camera_loss_scale;
+	// 		float l2_reg = m_nerf.training.intrinsic_l2_reg;
+	// 		focal_length_gradient += m_nerf.training.cam_focal_length_offset.variable() * l2_reg;
+	// 		m_nerf.training.cam_focal_length_offset.set_learning_rate(std::max(1e-3f * std::pow(0.33f, (float)(m_nerf.training.cam_focal_length_offset.step() / 128)),m_optimizer->learning_rate() / 1000.0f));
+	// 		m_nerf.training.cam_focal_length_offset.step(focal_length_gradient);
+	// 		m_nerf.training.dataset.update_metadata();
+	// 	}
 
-		if (m_nerf.training.optimize_exposure) {
-			CUDA_CHECK_THROW(cudaMemcpyAsync(m_nerf.training.cam_exposure_gradient.data(), m_nerf.training.cam_exposure_gradient_gpu.data(), m_nerf.training.cam_exposure_gradient_gpu.get_bytes(), cudaMemcpyDeviceToHost, stream));
+	// 	if (m_nerf.training.optimize_exposure) {
+	// 		CUDA_CHECK_THROW(cudaMemcpyAsync(m_nerf.training.cam_exposure_gradient.data(), m_nerf.training.cam_exposure_gradient_gpu.data(), m_nerf.training.cam_exposure_gradient_gpu.get_bytes(), cudaMemcpyDeviceToHost, stream));
 
-			vec3 mean_exposure = vec3(0.0f);
+	// 		vec3 mean_exposure = vec3(0.0f);
 
-			// Optimization step
-			for (uint32_t i = 0; i < m_nerf.training.n_images_for_training; ++i) {
-				vec3 gradient = m_nerf.training.cam_exposure_gradient[i] * per_camera_loss_scale;
+	// 		// Optimization step
+	// 		for (uint32_t i = 0; i < m_nerf.training.n_images_for_training; ++i) {
+	// 			vec3 gradient = m_nerf.training.cam_exposure_gradient[i] * per_camera_loss_scale;
 
-				float l2_reg = m_nerf.training.exposure_l2_reg;
-				gradient += m_nerf.training.cam_exposure[i].variable() * l2_reg;
+	// 			float l2_reg = m_nerf.training.exposure_l2_reg;
+	// 			gradient += m_nerf.training.cam_exposure[i].variable() * l2_reg;
 
-				m_nerf.training.cam_exposure[i].set_learning_rate(m_optimizer->learning_rate());
-				m_nerf.training.cam_exposure[i].step(gradient);
+	// 			m_nerf.training.cam_exposure[i].set_learning_rate(m_optimizer->learning_rate());
+	// 			m_nerf.training.cam_exposure[i].step(gradient);
 
-				mean_exposure += m_nerf.training.cam_exposure[i].variable();
-			}
+	// 			mean_exposure += m_nerf.training.cam_exposure[i].variable();
+	// 		}
 
-			mean_exposure /= m_nerf.training.n_images_for_training;
+	// 		mean_exposure /= m_nerf.training.n_images_for_training;
 
-			// Renormalize
-			std::vector<vec3> cam_exposures(m_nerf.training.n_images_for_training);
-			for (uint32_t i = 0; i < m_nerf.training.n_images_for_training; ++i) {
-				cam_exposures[i] = m_nerf.training.cam_exposure[i].variable() -= mean_exposure;
-			}
+	// 		// Renormalize
+	// 		std::vector<vec3> cam_exposures(m_nerf.training.n_images_for_training);
+	// 		for (uint32_t i = 0; i < m_nerf.training.n_images_for_training; ++i) {
+	// 			cam_exposures[i] = m_nerf.training.cam_exposure[i].variable() -= mean_exposure;
+	// 		}
 
-			CUDA_CHECK_THROW(cudaMemcpyAsync(m_nerf.training.cam_exposure_gpu.data(), cam_exposures.data(), m_nerf.training.n_images_for_training * sizeof(vec3), cudaMemcpyHostToDevice, stream));
-		}
+	// 		CUDA_CHECK_THROW(cudaMemcpyAsync(m_nerf.training.cam_exposure_gpu.data(), cam_exposures.data(), m_nerf.training.n_images_for_training * sizeof(vec3), cudaMemcpyHostToDevice, stream));
+	// 	}
 
-		m_nerf.training.n_steps_since_cam_update = 0;
-	}
+	// 	m_nerf.training.n_steps_since_cam_update = 0;
+	// }
 }
 
 __global__ void test_kernel(int *array){
@@ -3266,8 +3267,7 @@ void Testbed::train_nerf_step(uint32_t target_batch_size, Testbed::NerfCounters&
 	float* max_level_compacted = std::get<9>(scratch);
 	uint32_t* ray_counter = std::get<10>(scratch);
 
-	// debug_print<network_precision_t>(mlp_out, 32*sizeof(network_precision_t), 32);
-	// exit(0);
+	// debug_print<network_precision_t>(mlp_out, 32*sizeof(network_precision_t), 1, 32);
 
 	uint32_t max_inference;
 	if (counters.measured_batch_size_before_compaction == 0) {
@@ -3275,7 +3275,7 @@ void Testbed::train_nerf_step(uint32_t target_batch_size, Testbed::NerfCounters&
 	} else {
 		max_inference = next_multiple(std::min(counters.measured_batch_size_before_compaction, max_samples), tcnn::batch_size_granularity);
 	}
-
+	//column major by default i.e max_samples x 16
 	GPUMatrix<float> compacted_coords_matrix((float*)coords_compacted, floats_per_coord, target_batch_size);
 	GPUMatrix<network_precision_t> compacted_rgbsigma_matrix(mlp_out, padded_output_width, target_batch_size);
 
@@ -3348,9 +3348,16 @@ void Testbed::train_nerf_step(uint32_t target_batch_size, Testbed::NerfCounters&
 			hg_enc->set_max_level_gpu(m_max_level_rand_training ? max_level : nullptr);
 		}
 
+		//coords are position, dt(diference between sample in direction of ray), direction
 		GPUMatrix<float> coords_matrix((float*)coords, floats_per_coord, max_inference);
 		GPUMatrix<network_precision_t> rgbsigma_matrix(mlp_out, padded_output_width, max_inference);
 
+		// debug_print<float>(coords_matrix, coords_matrix.n_bytes(),  0, 1, 7);
+		// debug_print<float>(coords_matrix, coords_matrix.n_bytes(),  7, 1, 7);
+		// debug_print<float>(coords_matrix, coords_matrix.n_bytes(),  14, 1, 7);
+		// printf("\n size of coords matrix: %d x %d\n", coords_matrix.rows(), coords_matrix.cols());
+		// printf("\n matrix layout: %d\n", coords_matrix.layout() == tcnn::CM ? 1: 0);
+		// exit(0);
 
 		// rgbsigma matrix is output of 16 x Dynamic
 		m_network->inference_mixed_precision(stream, coords_matrix, rgbsigma_matrix, false);

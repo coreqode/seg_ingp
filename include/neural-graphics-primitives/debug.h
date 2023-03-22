@@ -7,8 +7,8 @@
 
 using namespace tcnn;
 template <typename T>
-void debug_print(const GPUMatrix<T> &device_array, int num_bytes, int n_elements = 32){
-    std::vector<float> host_array(num_bytes / sizeof(float));
+void debug_print(const GPUMatrix<T> &device_array, int num_bytes, int start, int stride, int n_elements){
+    std::vector<T> host_array(num_bytes / sizeof(T));
 
     CUDA_CHECK_THROW(cudaMemcpy(
         host_array.data(),
@@ -17,17 +17,39 @@ void debug_print(const GPUMatrix<T> &device_array, int num_bytes, int n_elements
         cudaMemcpyDeviceToHost
     ));
 
-    int count = 0;
+    int count=0;
     while (count < n_elements)
     {
-        printf("%f ", host_array[count]);
+        printf("%f ", (float) host_array[start + count*stride]);
         count++;
     }
     printf("\n--------------------------------\n");
 }
 
 template <typename T>
-void debug_print(T* device_array, int num_bytes, int n_elements = 32){
+void debug_print(const GPUMatrixDynamic<T> &device_array, int num_bytes, int start, int stride, int n_elements){
+    std::vector<T> host_array(num_bytes / sizeof(T));
+
+    CUDA_CHECK_THROW(cudaMemcpy(
+        host_array.data(),
+        device_array.data(),
+        num_bytes,
+        cudaMemcpyDeviceToHost
+    ));
+
+    int count=0;
+    while (count < n_elements)
+    {
+        printf("%f ", (float) host_array[start + count*stride]);
+        count++;
+    }
+    printf("\n--------------------------------\n");
+}
+
+
+
+template <typename T>
+void debug_print_ptr(T* device_array, int num_bytes, int n_elements){
 	T* host_array = (T*)malloc(num_bytes);
 
     CUDA_CHECK_THROW(cudaMemcpy(
@@ -57,6 +79,42 @@ void debug_print(T* device_array, int num_bytes, int n_elements = 32){
 
     free(host_array);
 }
+
+template <typename T>
+void debug_print_ptr(T* device_array, int num_bytes, int stride =1, int n_elements = 0){
+	T* host_array = (T*)malloc(num_bytes);
+
+    CUDA_CHECK_THROW(cudaMemcpy(
+        host_array,
+        device_array,
+        num_bytes,
+        cudaMemcpyDeviceToHost
+    ));
+
+    if (host_array != NULL){
+        printf("host_array is not NULL\n");
+    }
+    else{
+        printf("host_array is NULL\n");
+    }
+
+    if (n_elements == 0) {
+        n_elements = num_bytes / sizeof(T);
+    }
+
+    int count = 0;
+    while (count < n_elements)
+    {
+        printf("%f ", (float) *(host_array + count*stride));
+        count++;
+    }
+    printf("\n--------------------------------\n");
+
+    free(host_array);
+}
+
+
+
 
 /* Checking the values of the rgbsigma matrix 
 int num_bytes = rgbsigma_matrix.n_bytes();

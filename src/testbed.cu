@@ -3974,8 +3974,8 @@ void Testbed::train(uint32_t batch_size) {
 		reset_accumulation(false, false);
 	}
 
-	// uint32_t n_prep_to_skip = m_testbed_mode == ETestbedMode::Nerf ? tcnn::clamp(m_training_step / 16u, 1u, 16u) : 1u;
-	uint32_t n_prep_to_skip = 65536;
+	uint32_t n_prep_to_skip = m_testbed_mode == ETestbedMode::Nerf ? tcnn::clamp(m_training_step / 16u, 1u, 16u) : 1u;
+	// uint32_t n_prep_to_skip = 65536;
 
 	if (m_training_step % n_prep_to_skip == 0) {
 		auto start = std::chrono::steady_clock::now();
@@ -3993,6 +3993,7 @@ void Testbed::train(uint32_t batch_size) {
 
 		CUDA_CHECK_THROW(cudaStreamSynchronize(m_stream.get()));
 	}
+
 
 	// Find leaf optimizer and update its settings
 	json* leaf_optimizer_config = &m_network_config["optimizer"];

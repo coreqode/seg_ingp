@@ -41,9 +41,11 @@ __global__ void extract_density(
 	T* __restrict__ rgbd
 ) {
 	const uint32_t i = threadIdx.x + blockIdx.x * blockDim.x;
+	// if (i == 0) {
+	// 	printf("\n n_elements: %d, density_stride: %d, rgbd_stride: %d \n", n_elements, density_stride, rgbd_stride);
+	// }
 	if (i >= n_elements) return;
 
-	// Density is the first element in the array, I guess
 	rgbd[i * rgbd_stride] = density[i * density_stride];
 }
 
@@ -123,11 +125,16 @@ public:
 
 	void inference_mixed_precision_impl(cudaStream_t stream, const tcnn::GPUMatrixDynamic<float>& input, tcnn::GPUMatrixDynamic<T>& output, bool use_inference_params = true) override {
 		uint32_t batch_size = input.n();
+
+		// Makind Dummy input and output matrices
 		tcnn::GPUMatrixDynamic<T> density_network_input{m_pos_encoding->padded_output_width(), batch_size, stream, m_pos_encoding->preferred_output_layout()};
 		tcnn::GPUMatrixDynamic<T> rgb_network_input{m_rgb_network_input_width, batch_size, stream, m_dir_encoding->preferred_output_layout()};
 
 		tcnn::GPUMatrixDynamic<T> density_network_output = rgb_network_input.slice_rows(0, m_density_network->padded_output_width());
 		tcnn::GPUMatrixDynamic<T> rgb_network_output{output.data(), m_rgb_network->padded_output_width(), batch_size, output.layout()};
+
+		// debug_print(density_network_output, density_network_output.n_bytes(), 0, 1, 32);
+		// debug_print(rgb_network_output, rgb_network_output.n_bytes(), 0, 1, 256);
 
 		m_pos_encoding->inference_mixed_precision(
 			stream,
@@ -136,7 +143,18 @@ public:
 			use_inference_params
 		);
 
+
+		// debug_print(density_network_input, density_network_input.n_bytes(), 0, 1, 16);
+		// debug_print(input.slice_rows(0, 7), input.n_bytes(), 0, 1, 7);
+
 		m_density_network->inference_mixed_precision(stream, density_network_input, density_network_output, use_inference_params);
+
+		// printf("\n m_density encoding %d", m_dir_encoding->preferred_output_layout() == tcnn::RM ? 1: 0);
+		// printf("\ndensity network output layout %d", density_network_output.layout() == tcnn::CM ? 1 : 0 );
+		// printf("\n size of density network output %d x %d", density_network_output.rows(), density_network_output.cols());
+		// debug_print<network_precision_t>(density_network_output, density_network_output.n_bytes(), 0, density_network_output.cols(), 16);
+		// printf("\n total elements in the density network output %d", density_network_output.n_elements());
+		// exit(0);
 
 		auto dir_out = rgb_network_input.slice_rows(m_density_network->padded_output_width(), m_dir_encoding->padded_output_width());
 		m_dir_encoding->inference_mixed_precision(
@@ -148,6 +166,21 @@ public:
 
 		m_rgb_network->inference_mixed_precision(stream, rgb_network_input, rgb_network_output, use_inference_params);
 
+		// debug_print<network_precision_t>(rgb_network_output, rgb_network_output.n_bytes(), 0, rgb_network_output.layout == tcnn::CM ? 1 : rgb_network_output.cols(), 16  );
+		// debug_print<network_precision_t>(rgb_network_output, rgb_network_output.n_bytes(), 0, rgb_network_output.cols(), 16);
+		// printf("\n size of rgb network output %d x %d \n", rgb_network_output.rows(), rgb_network_output.cols());
+		// exit(0);
+
+		// debug_print<network_precision_t>(output, output.n_bytes(), 0, output.cols(), 16);
+		// printf("\n layout of output %d \n", output.layout() == tcnn::AoS ? 1 : 0);
+		// printf("\n layout of output %d \n", output.layout() == tcnn::CM ? 1 : 0);
+		// printf("\n layout of density %d \n", density_network_output.layout() == tcnn::AoS ? 1 : 0);
+		// printf("\n layout of density %d \n", density_network_output.layout() == tcnn::CM ? 1 : 0);
+		// printf("\n layout of rgb %d \n", rgb_network_output.layout() == tcnn::AoS ? 1 : 0);
+		// printf("\n layout of rgb %d \n", rgb_network_output.layout() == tcnn::CM ? 1 : 0);
+		// exit(0);
+
+		// Getting the densiy from the density network output with stride of 1 RM layout
 		tcnn::linear_kernel(extract_density<T>, 0, stream,
 			batch_size,
 			density_network_output.layout() == tcnn::AoS ? density_network_output.stride() : 1,
@@ -155,6 +188,9 @@ public:
 			density_network_output.data(),
 			output.data() + 3 * (output.layout() == tcnn::AoS ? 1 : batch_size)
 		);
+
+		// debug_print<network_precision_t>(output, output.n_bytes(), 0, output.cols(), 16);
+		// printf("\n size of output %d x %d \n", output.rows(), output.cols());
 
 	}
 
@@ -171,9 +207,15 @@ public:
 		forward->density_network_input = tcnn::GPUMatrixDynamic<T>{m_pos_encoding->padded_output_width(), batch_size, stream, m_pos_encoding->preferred_output_layout()};
 		forward->rgb_network_input = tcnn::GPUMatrixDynamic<T>{m_rgb_network_input_width, batch_size, stream, m_dir_encoding->preferred_output_layout()};
 
+		// printf("\n  batchsize %d \n", batch_size);
+		// printf("\n rgb network input width %d \n", m_rgb_network_input_width);
+		// exit(0);
 
-		// uint32_t nbytes = density_network_input.n_bytes();
-		// debug_print(forward->density_network_input, nbytes, 32);
+		// Why size is 32 x 262144
+		// int n_elements = (int)forward->rgb_network_input.n_elements();
+		// printf("\n rgb layout %d \n", forward->rgb_network_input.layout() == tcnn::RM ? 1 : 0);
+		// printf("\n rgb_network_input rows and cols %d %d \n", forward->rgb_network_input.rows(), forward->rgb_network_input.cols());
+		// debug_print<network_precision_t>(forward->rgb_network_input.data(), sizeof(network_precision_t) * n_elements, 1 , 32);
 		// exit(0);
 
 		forward->pos_encoding_ctx = m_pos_encoding->forward(
@@ -186,6 +228,11 @@ public:
 
 		forward->density_network_output = forward->rgb_network_input.slice_rows(0, m_density_network->padded_output_width());
 		forward->density_network_ctx = m_density_network->forward(stream, forward->density_network_input, &forward->density_network_output, use_inference_params, prepare_input_gradients);
+
+		// int n_elements = (int)forward->density_network_output.n_elements();
+		// printf("\n density layout %d \n", forward->density_network_output.layout() == tcnn::RM ? 1 : 0);
+		// printf("\n density_network_output rows and cols %d %d \n", forward->density_network_output.rows(), forward->density_network_output.cols());
+		// debug_print<network_precision_t>(forward->density_network_output.data(), sizeof(network_precision_t) * n_elements, 1 , 32);
 
 		auto dir_out = forward->rgb_network_input.slice_rows(m_density_network->padded_output_width(), m_dir_encoding->padded_output_width());
 		forward->dir_encoding_ctx = m_dir_encoding->forward(
@@ -208,6 +255,12 @@ public:
 			);
 		}
 
+		// printf("\n m_dir_encoding %d", m_dir_encoding->preferred_output_layout() == tcnn::AoS ? forward -> density_network_output.stride());
+		// exit(0);
+
+		// int n_elements = (int)output->n_elements();
+		// debug_print<network_precision_t>(output->data(), sizeof(network_precision_t) * n_elements, 262144 , 20);
+		// exit(0);
 		return forward;
 	}
 
