@@ -50,6 +50,21 @@ __global__ void extract_density(
 }
 
 template <typename T>
+__global__ void extract_mask(
+	const uint32_t n_elements, //max_samples 262144 * 16
+	const uint32_t density_stride, //1
+	const uint32_t rgbd_stride, //16
+	const T* __restrict__ density,
+	T* __restrict__ rgbd
+) {
+	const uint32_t i = threadIdx.x + blockIdx.x * blockDim.x;
+	if (i >= n_elements) return;
+
+	// rgbd[i * rgbd_stride] = density[i * density_stride];
+	rgbd[i * rgbd_stride] = 1.0;
+}
+
+template <typename T>
 __global__ void extract_rgb(
 	const uint32_t n_elements, // 262144 * 3
 	const uint32_t rgb_stride, //3
@@ -65,23 +80,6 @@ __global__ void extract_rgb(
 
 	rgb[elem_idx*rgb_stride + dim_idx] = rgbd[elem_idx*output_stride + dim_idx];
 }
-
-// template <typename T>
-// __global__ void extract_mask(
-// 	const uint32_t n_elements,
-// 	const uint32_t mask_stride,
-// 	const uint32_t output_stride,
-// 	const T* __restrict__ rgbd,
-// 	T* __restrict__ rgb
-// ) {
-// 	const uint32_t i = threadIdx.x + blockIdx.x * blockDim.x;
-// 	if (i >= n_elements) return;
-
-// 	const uint32_t elem_idx = i / 3;
-// 	const uint32_t dim_idx = i - elem_idx * 3;
-
-// 	rgb[elem_idx*mask_stride + dim_idx] = rgbd[elem_idx*output_stride + dim_idx];
-// }
 
 template <typename T>
 __global__ void add_density_gradient(
@@ -131,6 +129,8 @@ public:
 		tcnn::GPUMatrixDynamic<T> rgb_network_input{m_rgb_network_input_width, batch_size, stream, m_dir_encoding->preferred_output_layout()};
 
 		tcnn::GPUMatrixDynamic<T> density_network_output = rgb_network_input.slice_rows(0, m_density_network->padded_output_width());
+		// RGB network output already has output pointer address so no need to extract RGB right now. 
+		// output automatically gets updated.
 		tcnn::GPUMatrixDynamic<T> rgb_network_output{output.data(), m_rgb_network->padded_output_width(), batch_size, output.layout()};
 
 		// debug_print(density_network_output, density_network_output.n_bytes(), 0, 1, 32);
@@ -151,9 +151,10 @@ public:
 
 		// printf("\n m_density encoding %d", m_dir_encoding->preferred_output_layout() == tcnn::RM ? 1: 0);
 		// printf("\ndensity network output layout %d", density_network_output.layout() == tcnn::CM ? 1 : 0 );
-		// printf("\n size of density network output %d x %d", density_network_output.rows(), density_network_output.cols());
-		//
-		// debug_print<network_precision_t>(density_network_output, density_network_output.n_bytes(), 0, density_network_output.cols(), 16);
+		// printf("\n size of density network output %d x %d\n", density_network_output.rows(), density_network_output.cols());
+
+		// exit(0);
+		// debug_print<network_precision_t>(density_network_output, density_network_output.n_bytes(), 4194304, density_network_output.cols(), 16); 
 		// printf("\n total elements in the density network output %d", density_network_output.n_elements());
 		// exit(0);
 
@@ -190,9 +191,16 @@ public:
 			output.data() + 3 * (output.layout() == tcnn::AoS ? 1 : batch_size)
 		);
 
-		// debug_print<network_precision_t>(output, output.n_bytes(), 0, output.cols(), 16);
-		// printf("\n size of output %d x %d \n", output.rows(), output.cols());
+		//In output first three are RGB, fourth one is density and we can fill mask in the fifth one. 
+		tcnn::linear_kernel(extract_mask<T>, 0, stream,
+			batch_size,
+			density_network_output.layout() == tcnn::AoS ? density_network_output.stride() : 1,
+			output.layout() == tcnn::AoS ? padded_output_width() : 1,
+			density_network_output.data(),
+			output.data() + 4 * (output.layout() == tcnn::AoS ? 1 : batch_size)
+		);
 
+		// debug_print_ptr<network_precision_t>(output.data(), output.n_bytes(), 1, 32);
 	}
 
 	uint32_t padded_density_output_width() const {
