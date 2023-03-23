@@ -319,6 +319,17 @@ __device__ float network_to_density_derivative(float val, ENerfActivation activa
 	return 0.0f;
 }
 
+__device__ float network_to_mask_derivative(float val, ENerfActivation activation) {
+	switch (activation) {
+		case ENerfActivation::None: return 0.0f;
+		case ENerfActivation::ReLU: return val > 0.0f ? 1.0f : 0.0f;
+		case ENerfActivation::Logistic: { float density = tcnn::logistic(val); return density * (1 - density); };
+		case ENerfActivation::Exponential: return __expf(tcnn::clamp(val, 0.0f, 1.0f));
+		default: assert(false);
+	}
+	return 0.0f;
+}
+
 template <typename T>
 __device__ vec3 network_to_rgb_vec(const T& val, ENerfActivation activation) {
 	return {
@@ -1432,6 +1443,7 @@ __global__ void compute_loss_kernel_train_nerf(
 	float EPSILON = 1e-4f;
 
 	vec3 rgb_ray = vec3(0.0f);
+	vec3 mask_ray = vec3(0.0f);
 	vec3 hitpoint = vec3(0.0f);
 
 	float depth_ray = 0.f;
@@ -1441,18 +1453,19 @@ __global__ void compute_loss_kernel_train_nerf(
 		if (T < EPSILON) {
 			break;
 		}
-		const tcnn::vector_t<tcnn::network_precision_t, 4> local_network_output = *(tcnn::vector_t<tcnn::network_precision_t, 4>*)network_output;
-		// const tcnn::vector_t<tcnn::network_precision_t, 5> local_network_output = *(tcnn::vector_t<tcnn::network_precision_t, 5>*)network_output;
+		// const tcnn::vector_t<tcnn::network_precision_t, 4> local_network_output = *(tcnn::vector_t<tcnn::network_precision_t, 4>*)network_output;
+		const tcnn::vector_t<tcnn::network_precision_t, 5> local_network_output = *(tcnn::vector_t<tcnn::network_precision_t, 5>*)network_output;
 		const vec3 rgb = network_to_rgb_vec(local_network_output, rgb_activation);
 		const vec3 pos = unwarp_position(coords_in.ptr->pos.p, aabb);
 		const float dt = unwarp_dt(coords_in.ptr->dt);
 		float cur_depth = distance(pos, ray_o);
 		float density = network_to_density(float(local_network_output[3]), density_activation);
-		// float mask = network_to_mask(float(local_network_output[4]), mask_activation);
+		float mask = network_to_mask(float(local_network_output[4]), mask_activation);
 
 		const float alpha = 1.f - __expf(-density * dt);
 		const float weight = alpha * T;
 		rgb_ray += weight * rgb;
+		mask_ray+= weight * mask;
 		hitpoint += weight * pos;
 		depth_ray += weight * cur_depth;
 		T *= (1.f - alpha);
@@ -1552,33 +1565,33 @@ __global__ void compute_loss_kernel_train_nerf(
 		loss_output[i] = mean_loss / (float)n_rays;
 	}
 
-	if (error_map) {
-		const vec2 pos = clamp(uv * vec2(error_map_res) - vec2(0.5f), vec2(0.0f), vec2(error_map_res) - vec2(1.0f + 1e-4f));
-		const ivec2 pos_int = pos;
-		const vec2 weight = pos - vec2(pos_int);
+	// if (error_map) {
+	// 	const vec2 pos = clamp(uv * vec2(error_map_res) - vec2(0.5f), vec2(0.0f), vec2(error_map_res) - vec2(1.0f + 1e-4f));
+	// 	const ivec2 pos_int = pos;
+	// 	const vec2 weight = pos - vec2(pos_int);
 
-		ivec2 idx = clamp(pos_int, ivec2(0), resolution - ivec2(2));
+	// 	ivec2 idx = clamp(pos_int, ivec2(0), resolution - ivec2(2));
 
-		auto deposit_val = [&](int x, int y, float val) {
-			atomicAdd(&error_map[img * compMul(error_map_res) + y * error_map_res.x + x], val);
-		};
+	// 	auto deposit_val = [&](int x, int y, float val) {
+	// 		atomicAdd(&error_map[img * compMul(error_map_res) + y * error_map_res.x + x], val);
+	// 	};
 
-		if (sharpness_data && aabb.contains(hitpoint)) {
-			ivec2 sharpness_pos = clamp(ivec2(uv * vec2(sharpness_resolution)), ivec2(0), sharpness_resolution - ivec2(1));
-			float sharp = sharpness_data[img * compMul(sharpness_resolution) + sharpness_pos.y * sharpness_resolution.x + sharpness_pos.x] + 1e-6f;
+	// 	if (sharpness_data && aabb.contains(hitpoint)) {
+	// 		ivec2 sharpness_pos = clamp(ivec2(uv * vec2(sharpness_resolution)), ivec2(0), sharpness_resolution - ivec2(1));
+	// 		float sharp = sharpness_data[img * compMul(sharpness_resolution) + sharpness_pos.y * sharpness_resolution.x + sharpness_pos.x] + 1e-6f;
 
-			// The maximum value of positive floats interpreted in uint format is the same as the maximum value of the floats.
-			float grid_sharp = __uint_as_float(atomicMax((uint32_t*)&cascaded_grid_at(hitpoint, sharpness_grid, mip_from_pos(hitpoint, max_mip)), __float_as_uint(sharp)));
-			grid_sharp = fmaxf(sharp, grid_sharp); // atomicMax returns the old value, so compute the new one locally.
+	// 		// The maximum value of positive floats interpreted in uint format is the same as the maximum value of the floats.
+	// 		float grid_sharp = __uint_as_float(atomicMax((uint32_t*)&cascaded_grid_at(hitpoint, sharpness_grid, mip_from_pos(hitpoint, max_mip)), __float_as_uint(sharp)));
+	// 		grid_sharp = fmaxf(sharp, grid_sharp); // atomicMax returns the old value, so compute the new one locally.
 
-			mean_loss *= fmaxf(sharp / grid_sharp, 0.01f);
-		}
+	// 		mean_loss *= fmaxf(sharp / grid_sharp, 0.01f);
+	// 	}
 
-		deposit_val(idx.x,   idx.y,   (1 - weight.x) * (1 - weight.y) * mean_loss);
-		deposit_val(idx.x+1, idx.y,        weight.x  * (1 - weight.y) * mean_loss);
-		deposit_val(idx.x,   idx.y+1, (1 - weight.x) *      weight.y  * mean_loss);
-		deposit_val(idx.x+1, idx.y+1,      weight.x  *      weight.y  * mean_loss);
-	}
+	// 	deposit_val(idx.x,   idx.y,   (1 - weight.x) * (1 - weight.y) * mean_loss);
+	// 	deposit_val(idx.x+1, idx.y,        weight.x  * (1 - weight.y) * mean_loss);
+	// 	deposit_val(idx.x,   idx.y+1, (1 - weight.x) *      weight.y  * mean_loss);
+	// 	deposit_val(idx.x+1, idx.y+1,      weight.x  *      weight.y  * mean_loss);
+	// }
 
 	loss_scale /= n_rays;
 
@@ -1587,6 +1600,7 @@ __global__ void compute_loss_kernel_train_nerf(
 
 	// now do it again computing gradients
 	vec3 rgb_ray2 = { 0.f,0.f,0.f };
+	vec3 mask_ray2 = { 0.f,0.f,0.f };
 	float depth_ray2 = 0.f;
 	T = 1.f;
 	for (uint32_t j = 0; j < compacted_numsteps; ++j) {
@@ -1602,20 +1616,24 @@ __global__ void compute_loss_kernel_train_nerf(
 		float depth = distance(pos, ray_o);
 
 		float dt = unwarp_dt(coord_in->dt);
-		const tcnn::vector_t<tcnn::network_precision_t, 4> local_network_output = *(tcnn::vector_t<tcnn::network_precision_t, 4>*)network_output;
+		const tcnn::vector_t<tcnn::network_precision_t, 5> local_network_output = *(tcnn::vector_t<tcnn::network_precision_t, 5>*)network_output;
 		const vec3 rgb = network_to_rgb_vec(local_network_output, rgb_activation);
 		const float density = network_to_density(float(local_network_output[3]), density_activation);
+		const float mask = network_to_mask(float(local_network_output[4]), mask_activation);
 		const float alpha = 1.f - __expf(-density * dt);
 		const float weight = alpha * T;
 		rgb_ray2 += weight * rgb;
+		mask_ray2 += weight * mask;
 		depth_ray2 += weight * depth;
 		T *= (1.f - alpha);
 
 		// we know the suffix of this ray compared to where we are up to. note the suffix depends on this step's alpha as suffix = (1-alpha)*(somecolor), so dsuffix/dalpha = -somecolor = -suffix/(1-alpha)
+		// What is Suffix? 
 		const vec3 suffix = rgb_ray - rgb_ray2;
+
 		const vec3 dloss_by_drgb = weight * lg.gradient;
 
-		tcnn::vector_t<tcnn::network_precision_t, 4> local_dL_doutput;
+		tcnn::vector_t<tcnn::network_precision_t, 5> local_dL_doutput;
 
 		// chain rule to go from dloss/drgb to dloss/dmlp_output
 		local_dL_doutput[0] = loss_scale * (dloss_by_drgb.x * network_to_rgb_derivative(local_network_output[0], rgb_activation) + fmaxf(0.0f, output_l2_reg * (float)local_network_output[0])); // Penalize way too large color values
@@ -1623,6 +1641,13 @@ __global__ void compute_loss_kernel_train_nerf(
 		local_dL_doutput[2] = loss_scale * (dloss_by_drgb.z * network_to_rgb_derivative(local_network_output[2], rgb_activation) + fmaxf(0.0f, output_l2_reg * (float)local_network_output[2]));
 
 		float density_derivative = network_to_density_derivative(float(local_network_output[3]), density_activation);
+		float mask_derivative = network_to_mask_derivative(float(local_network_output[4]), mask_activation);
+
+		// if (i == 0){
+		// 	printf("\n density_derivative: %f", density_derivative);
+		// 	printf("\n mask_derivative: %f", mask_derivative);
+		// }
+
 		const float depth_suffix = depth_ray - depth_ray2;
 		const float depth_supervision = depth_loss_gradient * (T * depth - depth_suffix);
 
@@ -1639,51 +1664,57 @@ __global__ void compute_loss_kernel_train_nerf(
 			(float(local_network_output[3]) > -10.0f && depth < near_distance ? 1e-4f : 0.0f);
 			;
 
-		*(tcnn::vector_t<tcnn::network_precision_t, 4>*)dloss_doutput = local_dL_doutput;
+
+		// Derivatives for mask
+		const vec3 dloss_by_dmask = weight * lg.gradient;
+
+		// local_dL_doutput[4] = loss_scale * dloss_by_dmask ;
+
+		*(tcnn::vector_t<tcnn::network_precision_t, 5>*)dloss_doutput = local_dL_doutput;
 
 		dloss_doutput += padded_output_width;
 		network_output += padded_output_width;
 	}
 
-	if (exposure_gradient) {
-		// Assume symmetric loss
-		vec3 dloss_by_dgt = -lg.gradient / uv_pdf;
+	// if (exposure_gradient) {
+	// 	// Assume symmetric loss
+	// 	vec3 dloss_by_dgt = -lg.gradient / uv_pdf;
 
-		if (!train_in_linear_colors) {
-			dloss_by_dgt /= srgb_to_linear_derivative(rgbtarget);
-		}
+	// 	if (!train_in_linear_colors) {
+	// 		dloss_by_dgt /= srgb_to_linear_derivative(rgbtarget);
+	// 	}
 
-		// 2^exposure * log(2)
-		vec3 dloss_by_dexposure = loss_scale * dloss_by_dgt * exposure_scale * 0.6931471805599453f;
-		atomicAdd(&exposure_gradient[img].x, dloss_by_dexposure.x);
-		atomicAdd(&exposure_gradient[img].y, dloss_by_dexposure.y);
-		atomicAdd(&exposure_gradient[img].z, dloss_by_dexposure.z);
-	}
+	// 	// 2^exposure * log(2)
+	// 	vec3 dloss_by_dexposure = loss_scale * dloss_by_dgt * exposure_scale * 0.6931471805599453f;
+	// 	atomicAdd(&exposure_gradient[img].x, dloss_by_dexposure.x);
+	// 	atomicAdd(&exposure_gradient[img].y, dloss_by_dexposure.y);
+	// 	atomicAdd(&exposure_gradient[img].z, dloss_by_dexposure.z);
+	// }
 
-	if (compacted_numsteps == numsteps && envmap_gradient) {
-		vec3 loss_gradient = lg.gradient;
-		if (envmap_loss_type != loss_type) {
-			loss_gradient = loss_and_gradient(rgbtarget, rgb_ray, envmap_loss_type).gradient;
-		}
+	// if (compacted_numsteps == numsteps && envmap_gradient) {
+	// 	vec3 loss_gradient = lg.gradient;
+	// 	if (envmap_loss_type != loss_type) {
+	// 		loss_gradient = loss_and_gradient(rgbtarget, rgb_ray, envmap_loss_type).gradient;
+	// 	}
 
-		vec3 dloss_by_dbackground = T * loss_gradient;
-		if (!train_in_linear_colors) {
-			dloss_by_dbackground /= srgb_to_linear_derivative(background_color);
-		}
+	// 	vec3 dloss_by_dbackground = T * loss_gradient;
+	// 	if (!train_in_linear_colors) {
+	// 		dloss_by_dbackground /= srgb_to_linear_derivative(background_color);
+	// 	}
 
-		tcnn::vector_t<tcnn::network_precision_t, 4> dL_denvmap;
-		dL_denvmap[0] = loss_scale * dloss_by_dbackground.x;
-		dL_denvmap[1] = loss_scale * dloss_by_dbackground.y;
-		dL_denvmap[2] = loss_scale * dloss_by_dbackground.z;
+	// 	tcnn::vector_t<tcnn::network_precision_t, 4> dL_denvmap;
+	// 	dL_denvmap[0] = loss_scale * dloss_by_dbackground.x;
+	// 	dL_denvmap[1] = loss_scale * dloss_by_dbackground.y;
+	// 	dL_denvmap[2] = loss_scale * dloss_by_dbackground.z;
 
 
-		float dloss_by_denvmap_alpha = -dot(dloss_by_dbackground, pre_envmap_background_color);
+	// 	float dloss_by_denvmap_alpha = -dot(dloss_by_dbackground, pre_envmap_background_color);
 
-		// dL_denvmap[3] = loss_scale * dloss_by_denvmap_alpha;
-		dL_denvmap[3] = (tcnn::network_precision_t)0;
+	// 	// dL_denvmap[3] = loss_scale * dloss_by_denvmap_alpha;
+	// 	dL_denvmap[3] = (tcnn::network_precision_t)0;
 
-		deposit_envmap_gradient(dL_denvmap, envmap_gradient, envmap_resolution, dir);
-	}
+	// 	deposit_envmap_gradient(dL_denvmap, envmap_gradient, envmap_resolution, dir);
+	// }
 }
 
 
@@ -3278,16 +3309,7 @@ void Testbed::train_nerf_step(uint32_t target_batch_size, Testbed::NerfCounters&
 	//column major by default i.e max_samples x 16
 	GPUMatrix<float> compacted_coords_matrix((float*)coords_compacted, floats_per_coord, target_batch_size);
 	GPUMatrix<network_precision_t> compacted_rgbsigma_matrix(mlp_out, padded_output_width, target_batch_size);
-
 	GPUMatrix<network_precision_t> gradient_matrix(dloss_dmlp_out, padded_output_width, target_batch_size);
-
-	// printf("\nGradientMatrix size %d %d\n", gradient_matrix.rows(), gradient_matrix.cols());
-	// printf("CompactedCoordsMatrix size %d %d\n", compacted_coords_matrix.rows(), compacted_coords_matrix.cols());
-	// printf("CompactedRGBSigmaMatrix size %d %d\n", compacted_rgbsigma_matrix.rows(), compacted_rgbsigma_matrix.cols());
-	// printf("padded_output_width %d\n", padded_output_width);
-	// printf("target_batch_size %d\n", target_batch_size);
-	// printf("output_width");
-	// exit(0);
 
 	if (m_training_step == 0) {
 		counters.n_rays_total = 0;
@@ -3310,8 +3332,6 @@ void Testbed::train_nerf_step(uint32_t target_batch_size, Testbed::NerfCounters&
 	CUDA_CHECK_THROW(cudaMemsetAsync(ray_counter, 0, sizeof(uint32_t), stream));
 
 	auto hg_enc = dynamic_cast<GridEncoding<network_precision_t>*>(m_encoding.get());
-
-	// printf("\n Numsteps: %lu\n", (unsigned long)numsteps);
 
 		linear_kernel(generate_training_samples_nerf, 0, stream,
 			counters.rays_per_batch,
@@ -3360,11 +3380,18 @@ void Testbed::train_nerf_step(uint32_t target_batch_size, Testbed::NerfCounters&
 		// exit(0);
 
 		// rgbsigma matrix is output of 16 x Dynamic
+		// inference pipeline 
+		// rgbsigma_matrix and compacted_rgbsigma_matrix points to same address
 		m_network->inference_mixed_precision(stream, coords_matrix, rgbsigma_matrix, false);
+
+		//rgbsigma matrix is not used other than this scope.
 
 		if (hg_enc) {
 			hg_enc->set_max_level_gpu(m_max_level_rand_training ? max_level_compacted : nullptr);
 		}
+
+		// debug_print<network_precision_t>(rgbsigma_matrix, rgbsigma_matrix.n_bytes(), 0, 1, 16);
+		// exit(0);
 
 		// debug_print<network_precision_t>(mlp_out, 32*sizeof(network_precision_t), 32);
 		// exit(0);
@@ -3443,6 +3470,10 @@ void Testbed::train_nerf_step(uint32_t target_batch_size, Testbed::NerfCounters&
 	bool train_extra_dims = m_nerf.training.dataset.n_extra_learnable_dims > 0 && m_nerf.training.optimize_extra_dims;
 	bool prepare_input_gradients = train_camera || train_extra_dims;
 	GPUMatrix<float> coords_gradient_matrix((float*)coords_gradient, floats_per_coord, target_batch_size);
+
+	// printf("\n compacted coords matrix address: %p \n", &compacted_coords_matrix);
+	// printf("\n coords matrix address: %p \n", &coords_matrix);
+	// exit(0);
 
 	{
 		auto ctx = m_network->forward(stream, compacted_coords_matrix, &compacted_rgbsigma_matrix, false, prepare_input_gradients);

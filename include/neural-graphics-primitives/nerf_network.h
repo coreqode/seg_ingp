@@ -216,17 +216,6 @@ public:
 		forward->density_network_input = tcnn::GPUMatrixDynamic<T>{m_pos_encoding->padded_output_width(), batch_size, stream, m_pos_encoding->preferred_output_layout()};
 		forward->rgb_network_input = tcnn::GPUMatrixDynamic<T>{m_rgb_network_input_width, batch_size, stream, m_dir_encoding->preferred_output_layout()};
 
-		// printf("\n  batchsize %d \n", batch_size);
-		// printf("\n rgb network input width %d \n", m_rgb_network_input_width);
-		// exit(0);
-
-		// Why size is 32 x 262144
-		// int n_elements = (int)forward->rgb_network_input.n_elements();
-		// printf("\n rgb layout %d \n", forward->rgb_network_input.layout() == tcnn::RM ? 1 : 0);
-		// printf("\n rgb_network_input rows and cols %d %d \n", forward->rgb_network_input.rows(), forward->rgb_network_input.cols());
-		// debug_print<network_precision_t>(forward->rgb_network_input.data(), sizeof(network_precision_t) * n_elements, 1 , 32);
-		// exit(0);
-
 		forward->pos_encoding_ctx = m_pos_encoding->forward(
 			stream,
 			input.slice_rows(0, m_pos_encoding->input_width()),
@@ -237,11 +226,6 @@ public:
 
 		forward->density_network_output = forward->rgb_network_input.slice_rows(0, m_density_network->padded_output_width());
 		forward->density_network_ctx = m_density_network->forward(stream, forward->density_network_input, &forward->density_network_output, use_inference_params, prepare_input_gradients);
-
-		// int n_elements = (int)forward->density_network_output.n_elements();
-		// printf("\n density layout %d \n", forward->density_network_output.layout() == tcnn::RM ? 1 : 0);
-		// printf("\n density_network_output rows and cols %d %d \n", forward->density_network_output.rows(), forward->density_network_output.cols());
-		// debug_print<network_precision_t>(forward->density_network_output.data(), sizeof(network_precision_t) * n_elements, 1 , 32);
 
 		auto dir_out = forward->rgb_network_input.slice_rows(m_density_network->padded_output_width(), m_dir_encoding->padded_output_width());
 		forward->dir_encoding_ctx = m_dir_encoding->forward(
@@ -264,12 +248,6 @@ public:
 			);
 		}
 
-		// printf("\n m_dir_encoding %d", m_dir_encoding->preferred_output_layout() == tcnn::AoS ? forward -> density_network_output.stride());
-		// exit(0);
-
-		// int n_elements = (int)output->n_elements();
-		// debug_print<network_precision_t>(output->data(), sizeof(network_precision_t) * n_elements, 262144 , 20);
-		// exit(0);
 		return forward;
 	}
 
