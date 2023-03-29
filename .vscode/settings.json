@@ -35,6 +35,7 @@
         "utility": "cpp",
         "variant": "cpp",
         "bitset": "cpp",
-        "random": "cpp"
+        "random": "cpp",
+        "__config": "cpp"
     }
 }

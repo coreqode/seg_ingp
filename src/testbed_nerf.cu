@@ -180,6 +180,24 @@ inline __device__ LossAndGradient relative_l2_loss(const vec3& target, const vec
 	};
 }
 
+inline __device__ LossAndGradient binary_cross_entropy(const vec3& target, const vec3& prediction) {
+	const vec3 loss = {
+		-target.x * logf(prediction.x) - (1.0f - target.x) * logf(1.0f - prediction.x),
+		0.0f, 
+		0.0f
+	};
+
+	const vec3 grad = {
+		-target.x / prediction.x + (1.0f - target.x) / (1.0f - prediction.x),
+		0.0f,
+		0.0f
+	};
+	return {
+		loss,
+		grad
+	};
+}
+
 inline __device__ LossAndGradient l1_loss(const vec3& target, const vec3& prediction) {
 	vec3 difference = prediction - target;
 	return {
@@ -935,11 +953,12 @@ __global__ void composite_kernel_nerf(
 	uint32_t j = 0;
 
 	for (; j < actual_n_steps; ++j) {
-		tcnn::vector_t<tcnn::network_precision_t, 4> local_network_output;
+		tcnn::vector_t<tcnn::network_precision_t, 5> local_network_output;
 		local_network_output[0] = network_output[i + j * n_elements + 0 * stride];
 		local_network_output[1] = network_output[i + j * n_elements + 1 * stride];
 		local_network_output[2] = network_output[i + j * n_elements + 2 * stride];
 		local_network_output[3] = network_output[i + j * n_elements + 3 * stride];
+		local_network_output[4] = network_output[i + j * n_elements + 4 * stride];
 		const NerfCoordinate* input = network_input(i + j * n_elements);
 		vec3 warped_pos = input->pos.p;
 		vec3 pos = unwarp_position(warped_pos, aabb);
@@ -953,6 +972,7 @@ __global__ void composite_kernel_nerf(
 		float weight = alpha * T;
 
 		vec3 rgb = network_to_rgb_vec(local_network_output, rgb_activation);
+		float mask = network_to_mask(local_network_output[4], ENerfActivation::Logistic);
 
 		if (glow_mode) { // random grid visualizations ftw!
 #if 0
@@ -1080,7 +1100,7 @@ __global__ void composite_kernel_nerf(
 			rgb = vec3(alpha);
 		}
 		else if (render_mode == ERenderMode::Segment){
-			rgb = vec3(alpha >= 0.5f);
+			rgb = vec3(mask * weight );
 		}
 
 		local_rgba += vec4(rgb * weight, weight);
@@ -1205,6 +1225,7 @@ __device__ LossAndGradient loss_and_gradient(const vec3& target, const vec3& pre
 		case ELossType::L1:          return l1_loss(target, prediction); break;
 		case ELossType::Mape:        return mape_loss(target, prediction); break;
 		case ELossType::Smape:       return smape_loss(target, prediction); break;
+		case ELossType::BCE:       return binary_cross_entropy(target, prediction); break;
 		// Note: we divide the huber loss by a factor of 5 such that its L2 region near zero
 		// matches with the L2 loss and error numbers become more comparable. This allows reading
 		// off dB numbers of ~converged models and treating them as approximate PSNR to compare
@@ -1443,7 +1464,7 @@ __global__ void compute_loss_kernel_train_nerf(
 	float EPSILON = 1e-4f;
 
 	vec3 rgb_ray = vec3(0.0f);
-	vec3 mask_ray = vec3(0.0f);
+	float mask_ray = 0.0f;
 	vec3 hitpoint = vec3(0.0f);
 
 	float depth_ray = 0.f;
@@ -1550,6 +1571,13 @@ __global__ void compute_loss_kernel_train_nerf(
 	LossAndGradient lg = loss_and_gradient(rgbtarget, rgb_ray, loss_type);
 	lg.loss /= img_pdf * uv_pdf;
 
+	vec3 mask_ray_vec={mask_ray, 0.0f, 0.0f};
+	vec3 target_mask = {1.0f, 0.0f, 0.0f};
+
+	LossAndGradient mask_lg = loss_and_gradient(target_mask, mask_ray_vec, ELossType::BCE);
+	mask_lg.loss /= img_pdf * uv_pdf;
+
+
 	float target_depth = length(rays_in_unnormalized[i].d) * ((depth_supervision_lambda > 0.0f && metadata[img].depth) ? read_depth(uv, resolution, metadata[img].depth) : -1.0f);
 	LossAndGradient lg_depth = loss_and_gradient(vec3(target_depth), vec3(depth_ray), depth_loss_type);
 	float depth_loss_gradient = target_depth > 0.0f ? depth_supervision_lambda * lg_depth.gradient.x : 0;
@@ -1561,9 +1589,12 @@ __global__ void compute_loss_kernel_train_nerf(
 	// lg.gradient /= img_pdf * uv_pdf;
 
 	float mean_loss = compAdd(lg.loss) / 3.0f;
+	float mean_mask_loss = compAdd(mask_lg.loss); // Only one value
+
 	if (loss_output) {
-		loss_output[i] = mean_loss / (float)n_rays;
+		loss_output[i] = (mean_loss  + mean_mask_loss) / (float)n_rays;
 	}
+
 
 	// if (error_map) {
 	// 	const vec2 pos = clamp(uv * vec2(error_map_res) - vec2(0.5f), vec2(0.0f), vec2(error_map_res) - vec2(1.0f + 1e-4f));
@@ -1600,9 +1631,10 @@ __global__ void compute_loss_kernel_train_nerf(
 
 	// now do it again computing gradients
 	vec3 rgb_ray2 = { 0.f,0.f,0.f };
-	vec3 mask_ray2 = { 0.f,0.f,0.f };
+	float mask_ray2 = 0.f;
 	float depth_ray2 = 0.f;
 	T = 1.f;
+
 	for (uint32_t j = 0; j < compacted_numsteps; ++j) {
 		if (max_level_rand_training) {
 			max_level_compacted_ptr[j] = max_level;
@@ -1628,8 +1660,13 @@ __global__ void compute_loss_kernel_train_nerf(
 		T *= (1.f - alpha);
 
 		// we know the suffix of this ray compared to where we are up to. note the suffix depends on this step's alpha as suffix = (1-alpha)*(somecolor), so dsuffix/dalpha = -somecolor = -suffix/(1-alpha)
-		// What is Suffix? 
-		const vec3 suffix = rgb_ray - rgb_ray2;
+		// What is Suffix? Suffix is random color we want to have? 
+		// const vec3 suffix = rgb_ray - rgb_ray2;
+		const vec3 suffix = 1.0f * (rgb_ray - rgb_ray2);
+		// const float suffix_mask = mask_ray - mask_ray2;
+
+		//rgb_ray - when you use all samples for accumulation
+		//rgb_ray2 - when you discard the samples with low density (prunign)
 
 		const vec3 dloss_by_drgb = weight * lg.gradient;
 
@@ -1642,11 +1679,6 @@ __global__ void compute_loss_kernel_train_nerf(
 
 		float density_derivative = network_to_density_derivative(float(local_network_output[3]), density_activation);
 		float mask_derivative = network_to_mask_derivative(float(local_network_output[4]), mask_activation);
-
-		// if (i == 0){
-		// 	printf("\n density_derivative: %f", density_derivative);
-		// 	printf("\n mask_derivative: %f", mask_derivative);
-		// }
 
 		const float depth_suffix = depth_ray - depth_ray2;
 		const float depth_supervision = depth_loss_gradient * (T * depth - depth_suffix);
@@ -1665,10 +1697,18 @@ __global__ void compute_loss_kernel_train_nerf(
 			;
 
 
-		// Derivatives for mask
-		const vec3 dloss_by_dmask = weight * lg.gradient;
+		// if (i==0){
+		// 	printf("\n mask lg gradient: %f %f %f", lg.gradient.x, lg.gradient.y, lg.gradient.z);
+		// }
 
-		// local_dL_doutput[4] = loss_scale * dloss_by_dmask ;
+		// Derivatives for mask
+		const float dloss_by_dmask = weight * mask_lg.gradient.x * mask_derivative;
+		local_dL_doutput[4] = loss_scale * dloss_by_dmask ;
+
+		// if (i==0){
+		// 	printf("\n dloss_by_dmask: %f", dloss_by_dmask);
+		// 	printf("\n mask_ray: %f", mask_ray);
+		// }
 
 		*(tcnn::vector_t<tcnn::network_precision_t, 5>*)dloss_doutput = local_dL_doutput;
 
@@ -3456,6 +3496,7 @@ void Testbed::train_nerf_step(uint32_t target_batch_size, Testbed::NerfCounters&
 	// printf("\n Memory address of rgbsigma matrix: %p\n", &rgbsigma_matrix);
 	// printf(" ------------------------------------------------------- ");
 
+
 	fill_rollover_and_rescale<network_precision_t><<<n_blocks_linear(target_batch_size*padded_output_width), n_threads_linear, 0, stream>>>(
 		target_batch_size, padded_output_width, counters.numsteps_counter_compacted.data(), dloss_dmlp_out
 	);
@@ -3473,6 +3514,11 @@ void Testbed::train_nerf_step(uint32_t target_batch_size, Testbed::NerfCounters&
 
 	// printf("\n compacted coords matrix address: %p \n", &compacted_coords_matrix);
 	// printf("\n coords matrix address: %p \n", &coords_matrix);
+	// exit(0);
+
+	// printf(" ------------------------------------------------------- ");
+	// printf("\n layout of the gradient matrix is %d\n", gradient_matrix.layout() == tcnn::CM ? 1: 0);
+	// debug_print<network_precision_t>(gradient_matrix, 16*sizeof(network_precision_t), 0, 1, 16);
 	// exit(0);
 
 	{

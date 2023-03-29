@@ -60,8 +60,8 @@ __global__ void extract_mask(
 	const uint32_t i = threadIdx.x + blockIdx.x * blockDim.x;
 	if (i >= n_elements) return;
 
-	// rgbd[i * rgbd_stride] = density[i * density_stride];
-	rgbd[i * rgbd_stride] = 1.0;
+	rgbd[i * rgbd_stride] = density[i * density_stride + 1];
+	// rgbd[i * rgbd_stride] = 1.0;
 }
 
 template <typename T>
@@ -142,7 +142,6 @@ public:
 			density_network_input,
 			use_inference_params
 		);
-
 
 		// debug_print(density_network_input, density_network_input.n_bytes(), 0, 1, 16);
 		// debug_print(input.slice_rows(0, 7), input.n_bytes(), 0, 1, 7);
@@ -262,6 +261,8 @@ public:
 		tcnn::EGradientMode param_gradients_mode = tcnn::EGradientMode::Overwrite
 	) override {
 		const auto& forward = dynamic_cast<const ForwardContext&>(ctx);
+
+		// debug_print<network_precision_t>(dL_doutput, dL_doutput.n_bytes(), 0, 1 , 32);
 
 		// Make sure our teporary buffers have the correct size for the given batch size
 		uint32_t batch_size = input.n();

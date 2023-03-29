@@ -290,7 +290,7 @@ PYBIND11_MODULE(pyngp, m) {
 		.value("Normals", ERenderMode::Normals)
 		.value("Positions", ERenderMode::Positions)
 		.value("Depth", ERenderMode::Depth)
-		.value("Distortion", ERenderMode::Distortion)
+		.value("Segment", ERenderMode::Segment)
 		.value("Cost", ERenderMode::Cost)
 		.value("Slice", ERenderMode::Slice)
 		.export_values();
