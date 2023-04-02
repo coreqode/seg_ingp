@@ -1,4 +1,6 @@
-/dependencies/*
+dependencies/*
 instant-ngp
 imgui.ini
 build/*
+ngp_mod_env/*
+brics-tools/*

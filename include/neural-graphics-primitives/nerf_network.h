@@ -41,9 +41,6 @@ __global__ void extract_density(
 	T* __restrict__ rgbd
 ) {
 	const uint32_t i = threadIdx.x + blockIdx.x * blockDim.x;
-	// if (i == 0) {
-	// 	printf("\n n_elements: %d, density_stride: %d, rgbd_stride: %d \n", n_elements, density_stride, rgbd_stride);
-	// }
 	if (i >= n_elements) return;
 
 	rgbd[i * rgbd_stride] = density[i * density_stride];
@@ -93,6 +90,20 @@ __global__ void add_density_gradient(
 	if (i >= n_elements) return;
 
 	density[i * density_stride] += rgbd[i * rgbd_stride + 3];
+}
+
+template <typename T>
+__global__ void add_mask_gradient(
+	const uint32_t n_elements,
+	const uint32_t rgbd_stride,
+	const T* __restrict__ rgbd,
+	const uint32_t density_stride,
+	T* __restrict__ density
+) {
+	const uint32_t i = threadIdx.x + blockIdx.x * blockDim.x;
+	if (i >= n_elements) return;
+
+	density[i * density_stride + 1] += rgbd[i * rgbd_stride + 4];
 }
 
 template <typename T>
@@ -305,6 +316,16 @@ public:
 			dL_ddensity_network_output.layout() == tcnn::RM ? 1 : dL_ddensity_network_output.stride(),
 			dL_ddensity_network_output.data()
 		);
+
+		tcnn::linear_kernel(add_mask_gradient<T>, 0, stream,
+			batch_size,
+			dL_doutput.m(),
+			dL_doutput.data(),
+			dL_ddensity_network_output.layout() == tcnn::RM ? 1 : dL_ddensity_network_output.stride(),
+			dL_ddensity_network_output.data()
+		);
+
+
 
 		tcnn::GPUMatrixDynamic<T> dL_ddensity_network_input;
 		if (m_pos_encoding->n_params() > 0 || dL_dinput) {

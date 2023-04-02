@@ -191,6 +191,7 @@ public:
 			int visualized_dim,
 			ENerfActivation rgb_activation,
 			ENerfActivation density_activation,
+			ENerfActivation mask_activation,
 			int show_accel,
 			uint32_t max_mip,
 			float min_transmittance,
@@ -707,6 +708,8 @@ public:
 			uint32_t n_steps_since_error_map_update = 0;
 			uint32_t n_rays_since_error_map_update = 0;
 
+			float mask_loss_weight = 0.0f;
+
 			float near_distance = 0.1f;
 			float density_grid_decay = 0.95f;
 			default_rng_t density_grid_rng;
@@ -724,7 +727,7 @@ public:
 			void update_extra_dims();
 
 #ifdef NGP_PYTHON
-			void set_image(int frame_idx, pybind11::array_t<float> img, pybind11::array_t<float> depth_img, float depth_scale);
+			void set_image(int frame_idx, pybind11::array_t<float> img, pybind11::array_t<float> depth_img, pybind11::array_t<float> mask, float depth_scale);
 #endif
 
 			void reset_camera_extrinsics();

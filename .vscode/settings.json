@@ -36,6 +36,7 @@
         "variant": "cpp",
         "bitset": "cpp",
         "random": "cpp",
-        "__config": "cpp"
+        "__config": "cpp",
+        "stdexcept": "cpp"
     }
 }

@@ -161,6 +161,7 @@ NerfDataset create_empty_nerf_dataset(size_t n_images, int aabb_scale, bool is_h
 	result.metadata.resize(n_images);
 	result.pixelmemory.resize(n_images);
 	result.depthmemory.resize(n_images);
+	result.maskmemory.resize(n_images);
 	result.raymemory.resize(n_images);
 	result.scale = NERF_SCALE;
 	result.offset = {0.5f, 0.5f, 0.5f};
@@ -299,6 +300,7 @@ NerfDataset load_nerf(const std::vector<fs::path>& jsonpaths, float sharpen_amou
 		float depth_scale = -1.f;
 	};
 	std::vector<LoadedImageInfo> images;
+	std::vector<LoadedImageInfo> masks;
 	LoadedImageInfo info = {};
 
 	if (transforms["camera"].is_array()) {
@@ -389,6 +391,10 @@ NerfDataset load_nerf(const std::vector<fs::path>& jsonpaths, float sharpen_amou
 			result.paths.emplace_back(frames[i]["file_path"]);
 		}
 
+		for (size_t i = 0; i < frames.size(); ++i) {
+			result.mask_paths.emplace_back(frames[i]["mask_path"]);
+		}
+
 		result.n_images += frames.size();
 	}
 
@@ -397,6 +403,7 @@ NerfDataset load_nerf(const std::vector<fs::path>& jsonpaths, float sharpen_amou
 	result.metadata.resize(result.n_images);
 	result.pixelmemory.resize(result.n_images);
 	result.depthmemory.resize(result.n_images);
+	result.maskmemory.resize(result.n_images);
 	result.raymemory.resize(result.n_images);
 
 	result.scale = NERF_SCALE;
@@ -560,6 +567,20 @@ NerfDataset load_nerf(const std::vector<fs::path>& jsonpaths, float sharpen_amou
 				throw std::runtime_error{fmt::format("Could not find image file '{}'.", path.str())};
 			}
 
+			// For masks
+			// std::string mask_json_provided_path = frame["mask_path"];
+			// if (mask_json_provided_path == "") {
+			// 	char buf[256];
+			// 	snprintf(buf, 256, "%s_%03d/rgba.png", part_after_underscore.c_str(), (int)i);
+			// 	mask_json_provided_path = buf;
+			// }
+
+			// fs::path mask_path = resolve_path(base_path, mask_json_provided_path);
+
+			// if (!mask_path.exists()) {
+			// 	throw std::runtime_error{fmt::format("Could not find image file '{}'.", mask_path.str())};
+			// }
+
 			int comp = 0;
 			if (equals_case_insensitive(path.extension(), "exr")) {
 				dst.pixels = load_exr_to_gpu(&dst.res.x, &dst.res.y, path.str().c_str(), fix_premult);
@@ -574,6 +595,7 @@ NerfDataset load_nerf(const std::vector<fs::path>& jsonpaths, float sharpen_amou
 				}
 
 				fs::path alphapath = resolve_path(base_path, fmt::format("{}.alpha.{}", frame["file_path"], path.extension()));
+
 				if (alphapath.exists()) {
 					int wa = 0, ha = 0;
 					uint8_t* alpha_img = load_stbi(alphapath, &wa, &ha, &comp, 4);
@@ -724,7 +746,7 @@ NerfDataset load_nerf(const std::vector<fs::path>& jsonpaths, float sharpen_amou
 	// copy / convert images to the GPU
 	for (uint32_t i = 0; i < result.n_images; ++i) {
 		const LoadedImageInfo& m = images[i];
-		result.set_training_image(i, m.res, m.pixels, m.depth_pixels, m.depth_scale * result.scale, m.image_data_on_gpu, m.image_type, EDepthDataType::UShort, sharpen_amount, m.white_transparent, m.black_transparent, m.mask_color, m.rays);
+		result.set_training_image(i, m.res, m.pixels, m.depth_pixels, nullptr, m.depth_scale * result.scale, m.image_data_on_gpu, m.image_type, EDepthDataType::UShort, sharpen_amount, m.white_transparent, m.black_transparent, m.mask_color, m.rays);
 		CUDA_CHECK_THROW(cudaDeviceSynchronize());
 	}
 	CUDA_CHECK_THROW(cudaDeviceSynchronize());
@@ -741,17 +763,20 @@ NerfDataset load_nerf(const std::vector<fs::path>& jsonpaths, float sharpen_amou
 	return result;
 }
 
-void NerfDataset::set_training_image(int frame_idx, const ivec2& image_resolution, const void* pixels, const void* depth_pixels, float depth_scale, bool image_data_on_gpu, EImageDataType image_type, EDepthDataType depth_type, float sharpen_amount, bool white_transparent, bool black_transparent, uint32_t mask_color, const Ray *rays) {
+void NerfDataset::set_training_image(int frame_idx, const ivec2& image_resolution, const void* pixels, const void* depth_pixels, const void* mask_pixels, float depth_scale, bool image_data_on_gpu, EImageDataType image_type, EDepthDataType depth_type, float sharpen_amount, bool white_transparent, bool black_transparent, uint32_t mask_color, const Ray *rays) {
 	if (frame_idx < 0 || frame_idx >= n_images) {
 		throw std::runtime_error{"NerfDataset::set_training_image: invalid frame index"};
 	}
 
 	size_t n_pixels = compMul(image_resolution);
 	size_t img_size = n_pixels * 4; // 4 channels
+	size_t mask_size = n_pixels *1 ; // 1 channel
 	size_t image_type_stride = image_type_size(image_type);
 	// copy to gpu if we need to do a conversion
 	GPUMemory<uint8_t> images_data_gpu_tmp;
 	GPUMemory<uint8_t> depth_tmp;
+	GPUMemory<uint8_t> mask_tmp;
+
 	if (!image_data_on_gpu && image_type == EImageDataType::Byte) {
 		images_data_gpu_tmp.resize(img_size * image_type_stride);
 		images_data_gpu_tmp.copy_from_host((uint8_t*)pixels);
@@ -761,6 +786,12 @@ void NerfDataset::set_training_image(int frame_idx, const ivec2& image_resolutio
 			depth_tmp.resize(n_pixels * depth_type_size(depth_type));
 			depth_tmp.copy_from_host((uint8_t*)depth_pixels);
 			depth_pixels = depth_tmp.data();
+		}
+
+		if (mask_pixels != nullptr){
+			mask_tmp.resize(n_pixels * image_type_size(image_type));
+			mask_tmp.copy_from_host((uint8_t*)mask_pixels);
+			mask_pixels = mask_tmp.data();
 		}
 
 		image_data_on_gpu = true;
@@ -795,6 +826,25 @@ void NerfDataset::set_training_image(int frame_idx, const ivec2& image_resolutio
 		}
 	} else {
 		depthmemory[frame_idx].free_memory();
+	}
+
+	// Load masks to the mask_memory
+	if (mask_pixels != nullptr){
+		maskmemory[frame_idx].resize(mask_size); // TODO: Check if this is correct
+		float* mask_dst = maskmemory[frame_idx].data();
+
+		if (mask_pixels && !image_data_on_gpu) {
+			mask_tmp.resize(n_pixels * image_type_size(image_type));
+			mask_tmp.copy_from_host((uint8_t*)mask_pixels);
+			mask_pixels = mask_tmp.data();
+		}
+
+		switch (image_type) {
+			default: throw std::runtime_error{"unknown mask type in set_training_image"};
+			case EImageDataType::Float: CUDA_CHECK_THROW(cudaMemcpy(mask_dst, mask_pixels, mask_size * image_type_size(image_type), image_data_on_gpu ? cudaMemcpyDeviceToDevice : cudaMemcpyHostToDevice)); break;
+		}
+	} else {
+		maskmemory[frame_idx].free_memory();
 	}
 
 	// apply requested sharpening
@@ -832,6 +882,7 @@ void NerfDataset::set_training_image(int frame_idx, const ivec2& image_resolutio
 
 	metadata[frame_idx].pixels = pixelmemory[frame_idx].data();
 	metadata[frame_idx].depth = depthmemory[frame_idx].data();
+	metadata[frame_idx].mask = maskmemory[frame_idx].data();
 	metadata[frame_idx].resolution = image_resolution;
 	metadata[frame_idx].image_data_type = image_type;
 	if (rays) {

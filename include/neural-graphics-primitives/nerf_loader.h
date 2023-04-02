@@ -34,6 +34,7 @@ struct TrainingImageMetadata {
 	EImageDataType image_data_type = EImageDataType::Half;
 
 	const float* depth = nullptr;
+	const float* mask = nullptr;
 	const Ray* rays = nullptr;
 
 	Lens lens = {};
@@ -70,6 +71,7 @@ struct NerfDataset {
 	std::vector<tcnn::GPUMemory<Ray>> raymemory;
 	std::vector<tcnn::GPUMemory<uint8_t>> pixelmemory;
 	std::vector<tcnn::GPUMemory<float>> depthmemory;
+	std::vector<tcnn::GPUMemory<float>> maskmemory;
 
 	std::vector<TrainingImageMetadata> metadata;
 	tcnn::GPUMemory<TrainingImageMetadata> metadata_gpu;
@@ -78,6 +80,7 @@ struct NerfDataset {
 
 	std::vector<TrainingXForm> xforms;
 	std::vector<std::string> paths;
+	std::vector<std::string> mask_paths; //changed
 	tcnn::GPUMemory<float> sharpness_data;
 	ivec2 sharpness_resolution = {0, 0};
 	tcnn::GPUMemory<float> envmap_data;
@@ -102,7 +105,7 @@ struct NerfDataset {
 		return (has_light_dirs ? 3u : 0u) + n_extra_learnable_dims;
 	}
 
-	void set_training_image(int frame_idx, const ivec2& image_resolution, const void* pixels, const void* depth_pixels, float depth_scale, bool image_data_on_gpu, EImageDataType image_type, EDepthDataType depth_type, float sharpen_amount = 0.f, bool white_transparent = false, bool black_transparent = false, uint32_t mask_color = 0, const Ray *rays = nullptr);
+	void set_training_image(int frame_idx, const ivec2& image_resolution, const void* pixels, const void* depth_pixels, const void* mask_pixels, float depth_scale, bool image_data_on_gpu, EImageDataType image_type, EDepthDataType depth_type, float sharpen_amount = 0.f, bool white_transparent = false, bool black_transparent = false, uint32_t mask_color = 0, const Ray *rays = nullptr);
 
 	vec3 nerf_direction_to_ngp(const vec3& nerf_dir) {
 		vec3 result = nerf_dir;
