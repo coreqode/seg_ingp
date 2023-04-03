@@ -746,7 +746,7 @@ NerfDataset load_nerf(const std::vector<fs::path>& jsonpaths, float sharpen_amou
 	// copy / convert images to the GPU
 	for (uint32_t i = 0; i < result.n_images; ++i) {
 		const LoadedImageInfo& m = images[i];
-		result.set_training_image(i, m.res, m.pixels, m.depth_pixels, nullptr, m.depth_scale * result.scale, m.image_data_on_gpu, m.image_type, EDepthDataType::UShort, sharpen_amount, m.white_transparent, m.black_transparent, m.mask_color, m.rays);
+		result.set_training_image(i, m.res, m.pixels, m.depth_pixels, nullptr, m.depth_scale * result.scale, 0, m.image_data_on_gpu, m.image_type, EDepthDataType::UShort, sharpen_amount, m.white_transparent, m.black_transparent, m.mask_color, m.rays);
 		CUDA_CHECK_THROW(cudaDeviceSynchronize());
 	}
 	CUDA_CHECK_THROW(cudaDeviceSynchronize());
@@ -763,14 +763,14 @@ NerfDataset load_nerf(const std::vector<fs::path>& jsonpaths, float sharpen_amou
 	return result;
 }
 
-void NerfDataset::set_training_image(int frame_idx, const ivec2& image_resolution, const void* pixels, const void* depth_pixels, const void* mask_pixels, float depth_scale, bool image_data_on_gpu, EImageDataType image_type, EDepthDataType depth_type, float sharpen_amount, bool white_transparent, bool black_transparent, uint32_t mask_color, const Ray *rays) {
+void NerfDataset::set_training_image(int frame_idx, const ivec2& image_resolution, const void* pixels, const void* depth_pixels, const void* mask_pixels, float depth_scale, int n_labels, bool image_data_on_gpu, EImageDataType image_type, EDepthDataType depth_type, float sharpen_amount, bool white_transparent, bool black_transparent, uint32_t mask_color, const Ray *rays) {
 	if (frame_idx < 0 || frame_idx >= n_images) {
 		throw std::runtime_error{"NerfDataset::set_training_image: invalid frame index"};
 	}
 
 	size_t n_pixels = compMul(image_resolution);
 	size_t img_size = n_pixels * 4; // 4 channels
-	size_t mask_size = n_pixels *1 ; // 1 channel
+	size_t mask_size = n_pixels * n_labels ; // number of labels is number of channels
 	size_t image_type_stride = image_type_size(image_type);
 	// copy to gpu if we need to do a conversion
 	GPUMemory<uint8_t> images_data_gpu_tmp;
@@ -789,7 +789,7 @@ void NerfDataset::set_training_image(int frame_idx, const ivec2& image_resolutio
 		}
 
 		if (mask_pixels != nullptr){
-			mask_tmp.resize(n_pixels * image_type_size(image_type));
+			mask_tmp.resize(mask_size * image_type_size(image_type));
 			mask_tmp.copy_from_host((uint8_t*)mask_pixels);
 			mask_pixels = mask_tmp.data();
 		}
@@ -834,7 +834,7 @@ void NerfDataset::set_training_image(int frame_idx, const ivec2& image_resolutio
 		float* mask_dst = maskmemory[frame_idx].data();
 
 		if (mask_pixels && !image_data_on_gpu) {
-			mask_tmp.resize(n_pixels * image_type_size(image_type));
+			mask_tmp.resize(mask_size * image_type_size(image_type));
 			mask_tmp.copy_from_host((uint8_t*)mask_pixels);
 			mask_pixels = mask_tmp.data();
 		}

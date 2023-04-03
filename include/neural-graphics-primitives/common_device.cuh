@@ -908,13 +908,13 @@ inline NGP_HOST_DEVICE float read_depth(vec2 pos, const ivec2& resolution, const
 	return read_val(image_pos(pos, resolution));
 }
 
-inline NGP_HOST_DEVICE float read_mask(vec2 pos, const ivec2& resolution, const float* mask, uint32_t img = 0) {
+inline NGP_HOST_DEVICE vec3 read_mask(vec2 pos, const ivec2& resolution, const float* mask, uint32_t img = 0) {
 	auto read_val = [&](const ivec2& p) {
-		return mask[pixel_idx(p, resolution, img)];
+		return (mask)[pixel_idx(p, resolution, img)];
 	};
 
-	return read_val(image_pos(pos, resolution));
-}
+	return {read_val(image_pos(pos, resolution)), 0, 0};
+	}
 
 mat4x3 camera_lerp(const mat4x3& begin, const mat4x3& end, float t);
 

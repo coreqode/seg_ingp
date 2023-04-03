@@ -727,7 +727,7 @@ public:
 			void update_extra_dims();
 
 #ifdef NGP_PYTHON
-			void set_image(int frame_idx, pybind11::array_t<float> img, pybind11::array_t<float> depth_img, pybind11::array_t<float> mask, float depth_scale);
+			void set_image(int frame_idx, pybind11::array_t<float> img, pybind11::array_t<float> depth_img, pybind11::array_t<float> mask, float depth_scale, int n_labels);
 #endif
 
 			void reset_camera_extrinsics();

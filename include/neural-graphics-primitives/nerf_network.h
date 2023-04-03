@@ -269,7 +269,8 @@ public:
 		const tcnn::GPUMatrixDynamic<T>& dL_doutput,
 		tcnn::GPUMatrixDynamic<float>* dL_dinput = nullptr,
 		bool use_inference_params = false,
-		tcnn::EGradientMode param_gradients_mode = tcnn::EGradientMode::Overwrite
+		tcnn::EGradientMode param_gradients_mode = tcnn::EGradientMode::Overwrite,
+		bool use_mask_gradients = false 
 	) override {
 		const auto& forward = dynamic_cast<const ForwardContext&>(ctx);
 
@@ -317,14 +318,15 @@ public:
 			dL_ddensity_network_output.data()
 		);
 
-		tcnn::linear_kernel(add_mask_gradient<T>, 0, stream,
-			batch_size,
-			dL_doutput.m(),
-			dL_doutput.data(),
-			dL_ddensity_network_output.layout() == tcnn::RM ? 1 : dL_ddensity_network_output.stride(),
-			dL_ddensity_network_output.data()
-		);
-
+		if (use_mask_gradients){
+			tcnn::linear_kernel(add_mask_gradient<T>, 0, stream,
+				batch_size,
+				dL_doutput.m(),
+				dL_doutput.data(),
+				dL_ddensity_network_output.layout() == tcnn::RM ? 1 : dL_ddensity_network_output.stride(),
+				dL_ddensity_network_output.data()
+			);
+		}
 
 
 		tcnn::GPUMatrixDynamic<T> dL_ddensity_network_input;

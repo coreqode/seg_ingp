@@ -1101,8 +1101,7 @@ __global__ void composite_kernel_nerf(
 			rgb = vec3(alpha);
 		}
 		else if (render_mode == ERenderMode::Segment){
-			// rgb = vec3(mask * weight);
-			rgb = vec3(mask>0.5f);
+			rgb = vec3(mask);
 		}
 
 		local_rgba += vec4(rgb * weight, weight);
@@ -1587,10 +1586,10 @@ __global__ void compute_loss_kernel_train_nerf(
 
 	vec3 mask_ray_vec={mask_ray, 0.0f, 0.0f};
 
-	float targetmask_val = read_mask(uv, resolution, metadata[img].mask);
+	vec3 targetmask_val = read_mask(uv, resolution, metadata[img].mask);
 	// float targetmask_val = 0.0f;
-	vec3 target_mask = {targetmask_val, 0.0f, 0.0f};
-	LossAndGradient mask_lg = loss_and_gradient(target_mask, mask_ray_vec, ELossType::RelativeL2); 
+	vec3 target_mask = {targetmask_val.x, 0.0f, 0.0f};
+	LossAndGradient mask_lg = loss_and_gradient(target_mask, mask_ray_vec, ELossType::Huber); 
 	mask_lg.loss.x = mask_lg.loss.x * wt2;
 	mask_lg.loss.y = mask_lg.loss.y * wt2;
 	mask_lg.loss.z = mask_lg.loss.z * wt2;
@@ -1598,6 +1597,10 @@ __global__ void compute_loss_kernel_train_nerf(
 	mask_lg.gradient.y = mask_lg.gradient.y * wt2;
 	mask_lg.gradient.z = mask_lg.gradient.z * wt2;
 	mask_lg.loss /= img_pdf * uv_pdf;
+
+	// if (i==0){
+	// 	printf("\n mask loss: %f", mask_lg.loss.x);
+	// } 
 
 
 	float target_depth = length(rays_in_unnormalized[i].d) * ((depth_supervision_lambda > 0.0f && metadata[img].depth) ? read_depth(uv, resolution, metadata[img].depth) : -1.0f);
@@ -1714,9 +1717,6 @@ __global__ void compute_loss_kernel_train_nerf(
 		float dloss_by_dmlp = density_derivative * (
 			dt * (dot(lg.gradient, T * rgb - suffix) + depth_supervision  + mask_supervision)
 		);
-
-		// TODO:
-		// Add the BCE gradient to mask as well.
 
 		//static constexpr float mask_supervision_strength = 1.f; // we are already 'leaking' mask information into the nerf via the random bg colors; setting this to eg between 1 and  100 encourages density towards 0 in such regions.
 		//dloss_by_dmlp += (texsamp.a<0.001f) ? mask_supervision_strength * weight : 0.f;
@@ -3561,7 +3561,7 @@ void Testbed::train_nerf_step(uint32_t target_batch_size, Testbed::NerfCounters&
 
 	{
 		auto ctx = m_network->forward(stream, compacted_coords_matrix, &compacted_rgbsigma_matrix, false, prepare_input_gradients);
-		m_network->backward(stream, *ctx, compacted_coords_matrix, compacted_rgbsigma_matrix, gradient_matrix, prepare_input_gradients ? &coords_gradient_matrix : nullptr, false, EGradientMode::Overwrite);
+		m_network->backward(stream, *ctx, compacted_coords_matrix, compacted_rgbsigma_matrix, gradient_matrix, prepare_input_gradients ? &coords_gradient_matrix : nullptr, false, EGradientMode::Overwrite, m_nerf.training.mask_loss_weight > 0.0f);
 	}
 
 	// debug_print<network_precision_t>(compacted_rgbsigma_matrix, compacted_rgbsigma_matrix.n_bytes(), 32);

@@ -46,7 +46,7 @@ using namespace pybind11::literals; // to bring in the `_a` literal
 NGP_NAMESPACE_BEGIN
 
 
-void Testbed::Nerf::Training::set_image(int frame_idx, pybind11::array_t<float> img, pybind11::array_t<float> depth_img,  pybind11::array_t<float> mask, float depth_scale) {
+void Testbed::Nerf::Training::set_image(int frame_idx, pybind11::array_t<float> img, pybind11::array_t<float> depth_img,  pybind11::array_t<float> mask, float depth_scale, int n_labels) {
 	if (frame_idx < 0 || frame_idx >= dataset.n_images) {
 		throw std::runtime_error{"Invalid frame index"};
 	}
@@ -69,7 +69,7 @@ void Testbed::Nerf::Training::set_image(int frame_idx, pybind11::array_t<float> 
 		mask_buf.ptr = nullptr;
 	}
 
-	dataset.set_training_image(frame_idx, {img_buf.shape[1], img_buf.shape[0]}, (const void*)img_buf.ptr, (const float*)depth_buf.ptr, (const float*) mask_buf.ptr, depth_scale, false, EImageDataType::Float, EDepthDataType::Float);
+	dataset.set_training_image(frame_idx, {img_buf.shape[1], img_buf.shape[0]}, (const void*)img_buf.ptr, (const float*)depth_buf.ptr, (const float*) mask_buf.ptr, depth_scale, n_labels, false, EImageDataType::Float, EDepthDataType::Float);
 }
 
 void Testbed::override_sdf_training_data(py::array_t<float> points, py::array_t<float> distances) {
@@ -697,6 +697,7 @@ PYBIND11_MODULE(pyngp, m) {
 			py::arg("depth_img"),
 			py::arg("mask") = py::none(),
 			py::arg("depth_scale")=1.0f,
+			py::arg("n_labels")=1,
 			"set one of the training images. must be a floating point numpy array of (H,W,C) with 4 channels; linear color space; W and H must match image size of the rest of the dataset"
 		)
 		;

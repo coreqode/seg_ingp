@@ -37,6 +37,7 @@
         "bitset": "cpp",
         "random": "cpp",
         "__config": "cpp",
-        "stdexcept": "cpp"
+        "stdexcept": "cpp",
+        "complex": "cpp"
     }
 }

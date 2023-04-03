@@ -341,7 +341,8 @@ public:
 		const tcnn::GPUMatrixDynamic<T>& dL_doutput,
 		tcnn::GPUMatrixDynamic<float>* dL_dinput = nullptr,
 		bool use_inference_params = false,
-		tcnn::EGradientMode param_gradients_mode = tcnn::EGradientMode::Overwrite
+		tcnn::EGradientMode param_gradients_mode = tcnn::EGradientMode::Overwrite,
+		bool use_mask_gradients = false 
 	) override {
 		const uint32_t num_elements = input.n();
 		if (padded_output_width() == 0 || num_elements == 0) {

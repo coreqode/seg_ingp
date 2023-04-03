@@ -55,7 +55,8 @@ public:
 		const tcnn::GPUMatrixDynamic<T>& dL_doutput,
 		tcnn::GPUMatrixDynamic<float>* dL_dinput = nullptr,
 		bool use_inference_matrices = false,
-		tcnn::EGradientMode param_gradients_mode = tcnn::EGradientMode::Overwrite
+		tcnn::EGradientMode param_gradients_mode = tcnn::EGradientMode::Overwrite,
+		bool use_mask_gradients = false 
 	) override {
 		throw std::runtime_error{"The trainable buffer does not support backward(). Its content is meant to be used externally."};
 	}

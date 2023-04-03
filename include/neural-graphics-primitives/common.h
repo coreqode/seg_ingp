@@ -120,7 +120,7 @@ enum class ERenderMode : int {
 	EncodingVis, // EncodingVis exists outside of the standard render modes
 	Segment,
 };
-static constexpr const char* RenderModeStr = "AO\0Shade\0Normals\0Positions\0Depth\0Distortion\0Cost\0Slice\0\0";
+static constexpr const char* RenderModeStr = "AO\0Shade\0Normals\0Positions\0Depth\0Distortion\0Cost\0Slice\0Segment\0\0";
 
 enum class ERandomMode : int {
 	Random,
