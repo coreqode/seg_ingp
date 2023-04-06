@@ -181,14 +181,15 @@ inline __device__ LossAndGradient relative_l2_loss(const vec3& target, const vec
 }
 
 inline __device__ LossAndGradient binary_cross_entropy(const vec3& target, const vec3& prediction) {
+	float cond = 0.00001f;
 	const vec3 loss = {
-		-target.x * logf(prediction.x) - (1.0f - target.x) * logf(1.0f - prediction.x),
+		-target.x * logf(prediction.x + cond) - (1.0f - target.x) * logf(1.0f - prediction.x + cond),
 		0.0f, 
 		0.0f
 	};
 
 	const vec3 grad = {
-		-target.x / prediction.x + (1.0f - target.x) / (1.0f - prediction.x),
+		-target.x / (prediction.x + cond) + (1.0f - target.x) / (1.0f - prediction.x + cond),
 		0.0f,
 		0.0f
 	};
@@ -1584,12 +1585,35 @@ __global__ void compute_loss_kernel_train_nerf(
 	lg.gradient.z = lg.gradient.z * wt1;
 	lg.loss /= img_pdf * uv_pdf;
 
+	// if (mask_ray>0.999f){
+	// 	mask_ray = 0.999f;
+	// }
+	// else if (mask_ray<0.001f){
+	// 	mask_ray = 0.001f;
+	// }
+
 	vec3 mask_ray_vec={mask_ray, 0.0f, 0.0f};
 
 	vec3 targetmask_val = read_mask(uv, resolution, metadata[img].mask);
 	// float targetmask_val = 0.0f;
 	vec3 target_mask = {targetmask_val.x, 0.0f, 0.0f};
-	LossAndGradient mask_lg = loss_and_gradient(target_mask, mask_ray_vec, ELossType::Huber); 
+
+	LossAndGradient mask_lg = loss_and_gradient(target_mask, mask_ray_vec, ELossType::BCE); 
+
+	// if (i == 0){
+	// 	printf("\n mask ray: %f", mask_ray);
+	// 	printf("\n target mask: %f", target_mask.x);
+	// 	printf("\n mask loss: %f", mask_lg.loss.x);
+	// }
+
+	// Check if loss is nan
+	if (isnan(mask_lg.loss.x)){
+		printf("\n mask loss: %f", mask_lg.loss.x);
+		printf("\n mask ray: %f", mask_ray);
+		printf("\n target mask: %f", target_mask.x);
+		printf("Assertion failed! NaN Value Obtained\n"); asm("trap;");
+	}
+
 	mask_lg.loss.x = mask_lg.loss.x * wt2;
 	mask_lg.loss.y = mask_lg.loss.y * wt2;
 	mask_lg.loss.z = mask_lg.loss.z * wt2;
@@ -1597,10 +1621,6 @@ __global__ void compute_loss_kernel_train_nerf(
 	mask_lg.gradient.y = mask_lg.gradient.y * wt2;
 	mask_lg.gradient.z = mask_lg.gradient.z * wt2;
 	mask_lg.loss /= img_pdf * uv_pdf;
-
-	// if (i==0){
-	// 	printf("\n mask loss: %f", mask_lg.loss.x);
-	// } 
 
 
 	float target_depth = length(rays_in_unnormalized[i].d) * ((depth_supervision_lambda > 0.0f && metadata[img].depth) ? read_depth(uv, resolution, metadata[img].depth) : -1.0f);
@@ -3527,6 +3547,9 @@ void Testbed::train_nerf_step(uint32_t target_batch_size, Testbed::NerfCounters&
 			m_nerf.training.near_distance,
 			m_nerf.training.mask_loss_weight
 		);
+
+		// debug_print<network_precision_t>(mlp_out, 32*sizeof(network_precision_t), 32);
+		cudaDeviceSynchronize();
 
 
 	// printf("\n Memory address of mlp_out: %p\n", mlp_out);
