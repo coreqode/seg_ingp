@@ -3679,6 +3679,7 @@ void Testbed::reset_network(bool clear_density_grid) {
 
 		json& dir_encoding_config = config["dir_encoding"];
 		json& rgb_network_config = config["rgb_network"];
+		json& seg_network_config = config["seg_network"];
 
 		uint32_t n_dir_dims = 3;
 		uint32_t n_extra_dims = m_nerf.training.dataset.n_extra_dims();
@@ -3693,7 +3694,8 @@ void Testbed::reset_network(bool clear_density_grid) {
 				encoding_config,
 				dir_encoding_config,
 				network_config,
-				rgb_network_config
+				rgb_network_config, 
+				seg_network_config
 			));
 		}
 
@@ -3719,7 +3721,7 @@ void Testbed::reset_network(bool clear_density_grid) {
 			<< "(neurons=" << (int)rgb_network_config["n_neurons"] << ",layers=" << ((int)rgb_network_config["n_hidden_layers"]+2) << ")"
 			<< "]-->" << 3
 			;
-
+			
 		// Create distortion map model
 		{
 			json& distortion_map_optimizer_config =  config.contains("distortion_map") && config["distortion_map"].contains("optimizer") ? config["distortion_map"]["optimizer"] : optimizer_config;

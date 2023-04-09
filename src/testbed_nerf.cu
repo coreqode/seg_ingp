@@ -1598,7 +1598,7 @@ __global__ void compute_loss_kernel_train_nerf(
 	// float targetmask_val = 0.0f;
 	vec3 target_mask = {targetmask_val.x, 0.0f, 0.0f};
 
-	LossAndGradient mask_lg = loss_and_gradient(target_mask, mask_ray_vec, ELossType::BCE); 
+	LossAndGradient mask_lg = loss_and_gradient(target_mask, mask_ray_vec, ELossType::Huber); 
 
 	// if (i == 0){
 	// 	printf("\n mask ray: %f", mask_ray);
@@ -1748,19 +1748,6 @@ __global__ void compute_loss_kernel_train_nerf(
 			;
 
 		local_dL_doutput[4] = loss_scale * dloss_by_dmask;
-
-		// if (i==100){
-		// 	// printf("\n dloss_by_dmask: %f", dloss_by_dmask);
-		// 	printf("\n mask_ray: %f", mask);
-		// 	printf("\n desnity: %f", density);
-		// 	printf("\n weight: %f", weight);
-		// 	printf("\n target_mask: %f", targetmask_val );
-		// 	printf("\n dloss_by_dmlp: %f", dloss_by_dmlp);
-		// 	printf("\n dloss_by_dmask: %f", dloss_by_dmask);
-		// 	printf("\n mask_gradient: %f", mask_lg.gradient.x);
-		// 	printf("\n loss_scale : %f", loss_scale);
-		// 	printf("\n -----------------------");
-		// }
 
 		*(tcnn::vector_t<tcnn::network_precision_t, 5>*)dloss_doutput = local_dL_doutput;
 
@@ -3127,6 +3114,7 @@ void Testbed::train_nerf(uint32_t target_batch_size, bool get_loss_scalar, cudaS
 	// 		linear_kernel(decay_sharpness_grid_nerf, 0, stream, m_nerf.training.sharpness_grid.size(), 0.95f, m_nerf.training.sharpness_grid.data());
 	// 	}
 	// }
+
 	m_nerf.training.counters_rgb.prepare_for_training_steps(stream);
 
 	// if (m_nerf.training.n_steps_since_cam_update == 0) {
@@ -3488,7 +3476,6 @@ void Testbed::train_nerf_step(uint32_t target_batch_size, Testbed::NerfCounters&
 		}
 
 		// debug_print<network_precision_t>(rgbsigma_matrix, rgbsigma_matrix.n_bytes(), 0, 1, 16);
-		// exit(0);
 
 		// debug_print<network_precision_t>(mlp_out, 32*sizeof(network_precision_t), 32);
 		// exit(0);
@@ -3580,6 +3567,10 @@ void Testbed::train_nerf_step(uint32_t target_batch_size, Testbed::NerfCounters&
 	// printf(" ------------------------------------------------------- ");
 	// printf("\n layout of the gradient matrix is %d\n", gradient_matrix.layout() == tcnn::CM ? 1: 0);
 	// debug_print<network_precision_t>(gradient_matrix, 16*sizeof(network_precision_t), 0, 1, 16);
+	// exit(0);
+
+	// printf("\n size of compacted_rgbsigma_matrix is %d  %d\n", compacted_rgbsigma_matrix.rows(), compacted_rgbsigma_matrix.cols());
+	// debug_print<network_precision_t>(compacted_rgbsigma_matrix, compacted_rgbsigma_matrix.n_bytes(), 0, 1, 32);
 	// exit(0);
 
 	{
