@@ -64,6 +64,7 @@ __global__ void extract_mask(
 
 	for (uint32_t j = 0; j < n_labels; ++j) {
 		seg[i*seg_stride + j] = rgbd[i*rgbd_stride + j];
+		// seg[i*seg_stride + j] = 0.0f;
 	}
 }
 
@@ -82,7 +83,7 @@ __global__ void pack_mask_with_density(
 	// const uint32_t elem_idx = i / n_labels;
 
 	for (uint32_t j = 0; j < n_labels; ++j) {
-		// rgbd[i*rgbd_stride + j] = 1.0f;
+		// rgbd[i*rgbd_stride + j] = 0.0f;
 		rgbd[i*rgbd_stride + j] = seg[i*seg_stride + j];
 	}
 }
@@ -90,7 +91,7 @@ __global__ void pack_mask_with_density(
 template <typename T>
 __global__ void extract_rgb(
 	const uint32_t n_elements, // 262144 * 3
-	const uint32_t rgb_stride, //3
+	const uint32_t rgb_stride, //16
 	const uint32_t output_stride, //16
 	const T* __restrict__ rgbd,
 	T* __restrict__ rgb
@@ -128,7 +129,6 @@ __global__ void add_density_gradient_and_seg_gradient(
 ) {
 	const uint32_t i = threadIdx.x + blockIdx.x * blockDim.x;
 	if (i >= n_elements) return;
-
 	dL_density[i * density_stride] += dL_dseg[i * seg_stride];
 }
 
@@ -265,6 +265,10 @@ public:
 
 		// printf("\n $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ \n ");
 
+		// printf("\n layout of output %d \n", output.layout() == tcnn::AoS ? 1 : 0);
+		// printf("\n layout of seg_network_output %d \n", seg_network_output.layout() == tcnn::AoS ? 1 : 0);
+		// printf("\n layout of density_network_output %d \n", density_network_output.layout() == tcnn::AoS ? 1 : 0);
+
 		tcnn::linear_kernel(pack_mask_with_density<T>, 0, stream,
 			n_labels,
 			batch_size,
@@ -313,7 +317,6 @@ public:
 			prepare_input_gradients
 		);
 
-
 		//TODO Need to Check for Seg
 
 		if (output) {
@@ -328,7 +331,6 @@ public:
 			forward->seg_network_ctx = m_seg_network->forward(stream, forward->density_network_output, output ? &forward->seg_network_output : nullptr, use_inference_params, prepare_input_gradients); 
 		}
 
-
 		if (output) {
 			tcnn::linear_kernel(extract_density<T>, 0, stream,
 				batch_size, 
@@ -338,6 +340,7 @@ public:
 				output->data()+3
 			);
 
+			//TODO: Check this
 			if (train_seg){
 				tcnn::linear_kernel(pack_mask_with_density<T>, 0, stream,
 					n_labels,
@@ -377,8 +380,8 @@ public:
 		);
 
 		//TODO: Check whether seg value needs to be inside output.
-		debug_print<network_precision_t>(output, output.n_bytes(), 0, 1, 16);
-		printf("\n layout of output: %d", output.layout() == tcnn::AoS ? 1 : 0);
+		// debug_print<network_precision_t>(output, output.n_bytes(), 0, 1, 16);
+	// printf("\n layout of output: %d", output.layout() == tcnn::AoS ? 1 : 0);
 		const tcnn::GPUMatrixDynamic<T> rgb_network_output{(T*)output.data(), m_rgb_network->padded_output_width(), batch_size, output.layout()};
 		tcnn::GPUMatrixDynamic<T> dL_drgb_network_input{m_rgb_network_input_width, batch_size, stream, m_dir_encoding->preferred_output_layout()};
 		m_rgb_network->backward(stream, *forward.rgb_network_ctx, forward.rgb_network_input, rgb_network_output, dL_drgb, &dL_drgb_network_input, use_inference_params, param_gradients_mode);
@@ -424,11 +427,16 @@ public:
 			tcnn::linear_kernel(extract_mask<T>, 0, stream,
 				n_labels,
 				batch_size, 
-				dL_drgb.m(), 
-				dL_doutput.m(), 
+				dL_drgb.m(),  //16 
+				dL_doutput.m(),  //16
 				dL_doutput.data() + 4, 
 				dL_dseg.data() 
 			);
+
+			// Layouts:
+			// dL_doutput: AoS and CM
+			// dL_dseg: AoS and CM
+			// dL_drgb: AoS and CM
 
 			// Getting the derivatives of dL/dseg_network_input
 			m_seg_network->backward(stream, *forward.seg_network_ctx, forward.seg_network_input, forward.seg_network_output, dL_dseg, &dL_dseg_network_input, use_inference_params, param_gradients_mode);
@@ -438,25 +446,37 @@ public:
 		// debug_print<network_precision_t>(dL_dseg_network_input, dL_dseg_network_input.n_bytes(), 0, dL_dseg_network_input.cols(), 16);
 		tcnn::GPUMatrixDynamic<T> dL_ddensity_network_output = dL_drgb_network_input.slice_rows(0, m_density_network->padded_output_width());
 
+		tcnn::linear_kernel(add_density_gradient<T>, 0, stream,
+			batch_size,
+			dL_doutput.m(), //16
+			dL_doutput.data(),
+			dL_ddensity_network_output.layout() == tcnn::RM ? 1 : dL_ddensity_network_output.stride(), //1
+			dL_ddensity_network_output.data()
+		);
+
 		if (train_seg){
 			// Add the dseg_network_input to the dL_ddensity_network_output
 			tcnn::linear_kernel(add_density_gradient_and_seg_gradient<T>, 0, stream,
 				batch_size,
-				dL_dseg_network_input.m(),
-				dL_dseg_network_input.data(),
+				dL_dseg_network_input.layout() == tcnn::RM ? 1 : dL_dseg_network_input.m(), //16
+				dL_dseg_network_input.data(), //
 				dL_ddensity_network_output.layout() == tcnn::RM ? 1 : dL_ddensity_network_output.stride(),
 				dL_ddensity_network_output.data()
 			);
-		}
 
-		else{
-			tcnn::linear_kernel(add_density_gradient<T>, 0, stream,
-				batch_size,
-				dL_doutput.m(),
-				dL_doutput.data(),
-				dL_ddensity_network_output.layout() == tcnn::RM ? 1 : dL_ddensity_network_output.stride(),
-				dL_ddensity_network_output.data()
-			);
+			//Layouts
+			// dL_doutput: CM
+			// dL_dseg_network_input: RM
+			// dL_ddensity_network_output: RM
+
+			// printf("\n dL_dsegnetwork input m %d\n", dL_dseg_network_input.m());
+			// printf("\n dL_doutput m %d\n", dL_doutput.m());
+
+			// printf("\n layout of dL_dseg_network_input %d\n", dL_dseg_network_input.layout() == tcnn::RM ? 1 : 0);
+			// printf("\n layout of dL_ddensity_network_output %d\n", dL_ddensity_network_output.layout() == tcnn::RM ? 1 : 0);
+			// printf("\n layou of dL_doutput %d\n", dL_doutput.layout() == tcnn::RM ? 1 : 0);
+			// printf("\n dL_ddensity_network_output stride %d\n", dL_ddensity_network_output.stride());
+			// exit(0);
 		}
 
 		//TODO: Add the dL_drgb_network_input to the dL_dseg_network_input which will be dL_ddensity_network_input
@@ -734,7 +754,7 @@ private:
 	uint32_t m_n_extra_dims; // extra dimensions are assumed to be part of a compound encoding with dir_dims
 	uint32_t m_dir_offset;
 
-	bool train_seg = false;
+	bool train_seg = true;
 	const uint32_t n_labels = 1;
 
 	// // Storage of forward pass data

@@ -1574,6 +1574,7 @@ __global__ void compute_loss_kernel_train_nerf(
 	// loss weightage
 	float wt1 = 1.0f;
 	float wt2 = mask_loss_weight > 0.0f ? mask_loss_weight : 0.0f;
+	wt2 = 0.0f;
 
 	LossAndGradient lg = loss_and_gradient(rgbtarget, rgb_ray, loss_type);
 
@@ -1585,20 +1586,13 @@ __global__ void compute_loss_kernel_train_nerf(
 	lg.gradient.z = lg.gradient.z * wt1;
 	lg.loss /= img_pdf * uv_pdf;
 
-	// if (mask_ray>0.999f){
-	// 	mask_ray = 0.999f;
-	// }
-	// else if (mask_ray<0.001f){
-	// 	mask_ray = 0.001f;
-	// }
-
 	vec3 mask_ray_vec={mask_ray, 0.0f, 0.0f};
 
 	vec3 targetmask_val = read_mask(uv, resolution, metadata[img].mask);
-	// float targetmask_val = 0.0f;
+	// vec3 targetmask_val = {1.0f, 0.0f, 0.0f};
 	vec3 target_mask = {targetmask_val.x, 0.0f, 0.0f};
 
-	LossAndGradient mask_lg = loss_and_gradient(target_mask, mask_ray_vec, ELossType::Huber); 
+	LossAndGradient mask_lg = loss_and_gradient(target_mask, mask_ray_vec, ELossType::BCE); 
 
 	// if (i == 0){
 	// 	printf("\n mask ray: %f", mask_ray);
