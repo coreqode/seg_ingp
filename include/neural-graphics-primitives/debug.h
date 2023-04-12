@@ -4,6 +4,7 @@
 #include <tiny-cuda-nn/common.h>
 #include <tiny-cuda-nn/gpu_matrix.h>
 #include <vector>
+#include <stdio.h>
 
 using namespace tcnn;
 template <typename T>
@@ -113,7 +114,20 @@ void debug_print_ptr(T* device_array, int num_bytes, int stride =1, int n_elemen
     free(host_array);
 }
 
+template <typename T>
+void debug_info(const GPUMatrix<T> &matrix){
+    printf("\n matrix dimensions: %d x %d \n", matrix.rows(), matrix.cols());
+    printf("\n matrix layout RM/CM: %d \n", matrix.layout() == tcnn::RM ? 1 : 0);
+    printf("\n matrix layout AoS/SoA: %d \n", matrix.layout() == tcnn::AoS ? 1 : 0);
+}
 
+template <typename T>
+void debug_info(const GPUMatrixDynamic<T> &matrix){
+    printf("\n matrix dimensions: %d x %d ", matrix.rows(), matrix.cols());
+    printf("\n matrix layout RM/CM: %d ", matrix.layout() == tcnn::RM ? 1 : 0);
+    printf("\n matrix layout AoS/SoA: %d ", matrix.layout() == tcnn::AoS ? 1 : 0);
+    printf("\n--------------------------------");
+}
 
 
 /* Checking the values of the rgbsigma matrix 
@@ -155,3 +169,4 @@ while (count < 32)
 }
 printf("\n--------------------------------\n");
 */
+

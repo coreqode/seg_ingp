@@ -582,7 +582,7 @@ public:
 	float m_bounding_radius = 1;
 	float m_exposure = 0.f;
 
-	ERenderMode m_render_mode = ERenderMode::Shade;
+	ERenderMode m_render_mode = ERenderMode::Segment; // Changed
 	EMeshRenderMode m_mesh_render_mode = EMeshRenderMode::VertexNormals;
 
 	uint32_t m_seed = 1337;
