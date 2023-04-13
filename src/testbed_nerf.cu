@@ -1474,7 +1474,7 @@ __global__ void compute_loss_kernel_train_nerf(
 			break;
 		}
 
-		const tcnn::vector_t<tcnn::network_precision_t, 4> local_network_output = *(tcnn::vector_t<tcnn::network_precision_t, 4>*)network_output;
+		const tcnn::vector_t<tcnn::network_precision_t, 6> local_network_output = *(tcnn::vector_t<tcnn::network_precision_t, 6>*)network_output;
 		const vec3 rgb = network_to_rgb_vec(local_network_output, rgb_activation);
 		const vec3 pos = unwarp_position(coords_in.ptr->pos.p, aabb);
 		const float dt = unwarp_dt(coords_in.ptr->dt);
@@ -1570,7 +1570,7 @@ __global__ void compute_loss_kernel_train_nerf(
 	// loss weightage
 	float wt1 = 1.0f;
 	// float wt2 = mask_loss_weight > 0.0f ? mask_loss_weight : 0.0f;
-    float wt2 = 0.01f;
+    float wt2 = 1.0f;
 	// wt2 = 0.0f;
 
 	LossAndGradient lg = loss_and_gradient(rgbtarget, rgb_ray, loss_type);
@@ -1589,7 +1589,7 @@ __global__ void compute_loss_kernel_train_nerf(
 	vec3 targetmask_val = {1.0f, 0.0f, 0.0f};
 	vec3 target_mask = {targetmask_val.x, 0.0f, 0.0f};
 
-	LossAndGradient mask_lg = loss_and_gradient(target_mask, mask_ray_vec, ELossType::Huber); 
+	LossAndGradient mask_lg = loss_and_gradient(target_mask, mask_ray_vec, ELossType::BCE); 
 
 	// Check if loss is nan
 	// if (isnan(mask_lg.loss.x)){
@@ -1685,7 +1685,7 @@ __global__ void compute_loss_kernel_train_nerf(
 		float depth = distance(pos, ray_o);
 
 		float dt = unwarp_dt(coord_in->dt);
-		const tcnn::vector_t<tcnn::network_precision_t, 4> local_network_output = *(tcnn::vector_t<tcnn::network_precision_t, 4>*)network_output;
+		const tcnn::vector_t<tcnn::network_precision_t, 5> local_network_output = *(tcnn::vector_t<tcnn::network_precision_t, 5>*)network_output;
 		const vec3 rgb = network_to_rgb_vec(local_network_output, rgb_activation);
 		const float density = network_to_density(float(local_network_output[3]), density_activation);
 		const float mask = network_to_mask(float(local_network_output[4]), mask_activation);
@@ -1727,7 +1727,7 @@ __global__ void compute_loss_kernel_train_nerf(
 		const float mask_supervision = mask_lg.gradient.x * (T * mask - mask_suffix);
 
 		float dloss_by_dmlp = density_derivative * (
-			dt * (dot(lg.gradient, T * rgb - suffix) + depth_supervision  + mask_supervision)
+			dt * (dot(lg.gradient, T * rgb - suffix) + depth_supervision + mask_supervision)
 		);
 
 		//static constexpr float mask_supervision_strength = 1.f; // we are already 'leaking' mask information into the nerf via the random bg colors; setting this to eg between 1 and  100 encourages density towards 0 in such regions.

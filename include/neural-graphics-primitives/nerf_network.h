@@ -62,7 +62,6 @@ __global__ void extract_rgb(
 
 template <typename T>
 __global__ void extract_mask(
-	const uint32_t n_labels,
 	const uint32_t n_elements, //max_samples 262144 * 16 
 	const uint32_t seg_stride, //1
 	const uint32_t rgbd_stride, //16
@@ -71,28 +70,24 @@ __global__ void extract_mask(
 ) {
 	const uint32_t i = threadIdx.x + blockIdx.x * blockDim.x;
 	if (i >= n_elements) return;
-
-	for (uint32_t j = 0; j < n_labels; ++j) {
-		seg[i*seg_stride + j] = rgbd[i*rgbd_stride + j];
-		// seg[i*seg_stride + j] = 0.0f;
-	}
+	seg[i*seg_stride] = rgbd[i*rgbd_stride];
 }
 
 template <typename T>
 __global__ void pack_mask_with_density(
-	const uint32_t n_labels,
 	const uint32_t n_elements, //max_samples 262144 * 16
 	const uint32_t seg_stride, //1
+	const uint32_t density_stride, //1
 	const uint32_t rgbd_stride, //16
 	const T* __restrict__ seg,
+	const T* __restrict__ density,
 	T* __restrict__ rgbd
 ) {
 	const uint32_t i = threadIdx.x + blockIdx.x * blockDim.x;
 	if (i >= n_elements) return;
 
-	for (uint32_t j = 0; j < n_labels; ++j) {
-		rgbd[i*rgbd_stride + j] = seg[i*seg_stride + j];
-	}
+	rgbd[i * rgbd_stride] = density[i * density_stride];
+	rgbd[i * rgbd_stride + 1] = seg[i * seg_stride];
 }
 
 template <typename T>
@@ -201,25 +196,26 @@ public:
 		}
 
 		// Getting the densiy from the density network output with stride of 1 RM layout
-		tcnn::linear_kernel(extract_density<T>, 0, stream,
-			batch_size,
-			density_network_output.layout() == tcnn::AoS ? density_network_output.stride() : 1, //density_layout is RM  // 1
-			output.layout() == tcnn::AoS ? padded_output_width() : 1, // output layout is CM // 16
-			density_network_output.data(),
-			output.data() + 3 * (output.layout() == tcnn::AoS ? 1 : batch_size)
-		);
-
-        if (train_seg){
-            // combine mask output to the output
-            tcnn::linear_kernel(pack_mask_with_density<T>, 0, stream,
-                n_labels,
-                batch_size,
-                seg_network_output.layout() == tcnn::AoS ? seg_network_output.stride() : 1, // seg_layout is RM  // 1
-                output.layout() == tcnn::AoS ? padded_output_width() : 1, // output layout is CM // 16
-                seg_network_output.data(),
-                output.data() + 4 * (output.layout() == tcnn::AoS ? 1 : batch_size)
-            );
-        }
+		if (train_seg){
+			tcnn::linear_kernel(pack_mask_with_density<T>, 0, stream,
+				batch_size,
+				seg_network_output.layout() == tcnn::AoS ? seg_network_output.stride() : 1, //seg_layout is RM  // 1
+				density_network_output.layout() == tcnn::AoS ? density_network_output.stride() : 1, //density_layout is RM  // 1
+				output.layout() == tcnn::AoS ? padded_output_width() : 1, // output layout is CM // 16
+				seg_network_output.data(),
+				density_network_output.data(),
+				output.data() + 3 * (output.layout() == tcnn::AoS ? 1 : batch_size)
+			);
+		}
+		else{
+			tcnn::linear_kernel(extract_density<T>, 0, stream,
+				batch_size,
+				density_network_output.layout() == tcnn::AoS ? density_network_output.stride() : 1, //density_layout is RM  // 1
+				output.layout() == tcnn::AoS ? padded_output_width() : 1, // output layout is CM // 16
+				density_network_output.data(),
+				output.data() + 3 * (output.layout() == tcnn::AoS ? 1 : batch_size)
+			);
+		}
 	}
 
 	uint32_t padded_density_output_width() const {
@@ -257,7 +253,8 @@ public:
 
 		if (output) {
 			forward->rgb_network_output = tcnn::GPUMatrixDynamic<T>{output->data(), m_rgb_network->padded_output_width(), batch_size, output->layout()};
-			forward->seg_network_output = tcnn::GPUMatrixDynamic<T>{output->data() + 4, m_rgb_network->padded_output_width(), batch_size, output->layout()};
+			forward->seg_network_output = tcnn::GPUMatrixDynamic<T>{m_seg_network->padded_output_width(), batch_size, stream, output->layout()};
+			// forward->seg_network_output = tcnn::GPUMatrixDynamic<T>{output->data() + 4, m_rgb_network->padded_output_width(), batch_size, output->layout()};
 		}
 
 		forward->rgb_network_ctx = m_rgb_network->forward(stream, forward->rgb_network_input, output ? &forward->rgb_network_output : nullptr, use_inference_params, prepare_input_gradients);
@@ -359,7 +356,6 @@ public:
 		if (train_seg){
 			// First extract mask
 			tcnn::linear_kernel(extract_mask<T>, 0, stream,
-				n_labels,
 				batch_size, 
 				dL_drgb.m(),  //CM // 16 
 				dL_doutput.m(),  // CM // 16
@@ -377,10 +373,10 @@ public:
 			m_seg_network->backward(stream, *forward.seg_network_ctx, forward.seg_network_input, forward.seg_network_output, dL_dseg, &dL_dseg_network_input, use_inference_params, param_gradients_mode);
 		}
 
-        debug_print(forward.seg_network_output, forward.seg_network_output.n_bytes(), 0, 1, 16);
+        // debug_print(forward.seg_network_output, forward.seg_network_output.n_bytes(), 0, 1, 16);
 		// debug_print(forward.rgb_network_output, forward.rgb_network_output.n_bytes(), 0, 1, 16);
 		// debug_print(dL_dseg_network_input, dL_dseg_network_input.n_bytes(), 0, 1, 16);
-		debug_print(dL_dseg, dL_dseg.n_bytes(), 0, 1, 16);
+		// debug_print(dL_dseg, dL_dseg.n_bytes(), 0, 1, 16);
         // debug_print(forward.seg_network_input, forward.seg_network_output.n_bytes(), 0, 1, 16);
 
 		tcnn::GPUMatrixDynamic<T> dL_ddensity_network_output = dL_drgb_network_input.slice_rows(0, m_density_network->padded_output_width());
