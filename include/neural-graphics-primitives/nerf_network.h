@@ -148,16 +148,16 @@ public:
 		m_rgb_network.reset(tcnn::create_network<T>(local_rgb_network_config));
 
 		// Segmentation Network
-		uint32_t seg_alignment = tcnn::minimum_alignment(seg_network);
+		// uint32_t seg_alignment = tcnn::minimum_alignment(seg_network);
 		// m_seg_network_input_width = tcnn::next_multiple(m_dir_encoding->padded_output_width() + m_density_network->padded_output_width(), seg_alignment);
 
 		// If take output from the density network rather than position encoding
-		m_seg_network_input_width = tcnn::next_multiple(m_density_network->padded_output_width(), seg_alignment);
+		// m_seg_network_input_width = tcnn::next_multiple(m_density_network->padded_output_width(), seg_alignment);
 
-		json local_seg_network_config = seg_network;
-		local_seg_network_config["n_input_dims"] = m_seg_network_input_width;
-		local_seg_network_config["n_output_dims"] = 16;
-		m_seg_network.reset(tcnn::create_network<T>(local_seg_network_config));
+		// json local_seg_network_config = seg_network;
+		// local_seg_network_config["n_input_dims"] = m_seg_network_input_width;
+		// local_seg_network_config["n_output_dims"] = 16;
+		m_seg_network.reset(tcnn::create_network<T>(local_rgb_network_config));
 
 		// m_seg_network.reset(tcnn::create_network<T>(local_rgb_network_config));
 		// std::shared_ptr<tcnn::FullyFusedMLP<T, 64>> tmp = std::dynamic_pointer_cast<tcnn::Network<T>> (m_seg_network);
@@ -172,7 +172,9 @@ public:
 		tcnn::GPUMatrixDynamic<T> rgb_network_input{m_rgb_network_input_width, batch_size, stream, m_dir_encoding->preferred_output_layout()};
 
 		tcnn::GPUMatrixDynamic<T> density_network_output = rgb_network_input.slice_rows(0, m_density_network->padded_output_width());
-		tcnn::GPUMatrixDynamic<T> rgb_network_output{output.data(), m_rgb_network->padded_output_width(), batch_size, output.layout()};
+		// tcnn::GPUMatrixDynamic<T> rgb_network_output{output.data(), m_rgb_network->padded_output_width(), batch_size, output.layout()};
+		tcnn::GPUMatrixDynamic<T> seg_network_output{output.data(), m_rgb_network->padded_output_width(), batch_size, output.layout()};
+		tcnn::GPUMatrixDynamic<T> rgb_network_output{m_seg_network->padded_output_width(), batch_size, stream, m_pos_encoding->preferred_output_layout()};
 
 		m_pos_encoding->inference_mixed_precision(
 			stream,
@@ -193,11 +195,9 @@ public:
 
 		m_rgb_network->inference_mixed_precision(stream, rgb_network_input, rgb_network_output, use_inference_params);
 
-		tcnn::GPUMatrixDynamic<T> seg_network_output{m_seg_network->padded_output_width(), batch_size, stream, m_pos_encoding->preferred_output_layout()};
-
 		// Inference for segmentation network
 		if (train_seg){
-			m_seg_network->inference_mixed_precision(stream, density_network_output, seg_network_output, use_inference_params);
+			m_seg_network->inference_mixed_precision(stream, rgb_network_input, seg_network_output, use_inference_params);
 		}
 
 		// Getting the densiy from the density network output with stride of 1 RM layout
@@ -211,15 +211,36 @@ public:
 
         if (train_seg){
             // combine mask output to the output
-            tcnn::linear_kernel(pack_mask_with_density<T>, 0, stream,
-                n_labels,
-                batch_size,
-                seg_network_output.layout() == tcnn::AoS ? seg_network_output.stride() : 1, // seg_layout is RM  // 1
-                output.layout() == tcnn::AoS ? padded_output_width() : 1, // output layout is CM // 16
-                seg_network_output.data(),
-                output.data() + 4 * (output.layout() == tcnn::AoS ? 1 : batch_size)
-            );
+            // tcnn::linear_kernel(pack_mask_with_density<T>, 0, stream,
+            //     n_labels,
+            //     batch_size,
+            //     rgb_network_output.layout() == tcnn::AoS ? rgb_network_output.stride() : 1, // seg_layout is RM  // 1
+            //     output.layout() == tcnn::AoS ? padded_output_width() : 1, // output layout is CM // 16
+            //     rgb_network_output.data(),
+            //     output.data() + 4 * (output.layout() == tcnn::AoS ? 1 : batch_size)
+            // );
+
+            // tcnn::linear_kernel(pack_mask_with_density<T>, 0, stream,
+            //     n_labels,
+            //     batch_size,
+            //     seg_network_output.layout() == tcnn::AoS ? seg_network_output.stride() : 1, // seg_layout is RM  // 1
+            //     output.layout() == tcnn::AoS ? padded_output_width() : 1, // output layout is CM // 16
+            //     seg_network_output.data() + 1,
+            //     output.data() + 5 * (output.layout() == tcnn::AoS ? 1 : batch_size)
+            // );
+
+            // tcnn::linear_kernel(pack_mask_with_density<T>, 0, stream,
+            //     n_labels,
+            //     batch_size,
+            //     seg_network_output.layout() == tcnn::AoS ? seg_network_output.stride() : 1, // seg_layout is RM  // 1
+            //     output.layout() == tcnn::AoS ? padded_output_width() : 1, // output layout is CM // 16
+            //     seg_network_output.data() + 2,
+            //     output.data() + 6 * (output.layout() == tcnn::AoS ? 1 : batch_size)
+            // );
         }
+
+		// debug_print(output, output.n_bytes(), 0, 1, 16);
+		// debug_print(seg_network_output, seg_network_output.n_bytes(), 0, 1, 16);
 	}
 
 	uint32_t padded_density_output_width() const {
@@ -256,16 +277,16 @@ public:
 		);
 
 		if (output) {
-			forward->rgb_network_output = tcnn::GPUMatrixDynamic<T>{output->data(), m_rgb_network->padded_output_width(), batch_size, output->layout()};
-			forward->seg_network_output = tcnn::GPUMatrixDynamic<T>{output->data() + 4, m_rgb_network->padded_output_width(), batch_size, output->layout()};
+			// forward->rgb_network_output = tcnn::GPUMatrixDynamic<T>{output->data(), m_rgb_network->padded_output_width(), batch_size, output->layout()};
+			// forward->seg_network_output = tcnn::GPUMatrixDynamic<T>{output->data(), m_rgb_network->padded_output_width(), batch_size, output->layout()};
+			forward->seg_network_output = tcnn::GPUMatrixDynamic<T>{m_seg_network->padded_output_width(), batch_size, stream, output->layout()};
+
 		}
 
-		forward->rgb_network_ctx = m_rgb_network->forward(stream, forward->rgb_network_input, output ? &forward->rgb_network_output : nullptr, use_inference_params, prepare_input_gradients);
+		// forward->rgb_network_ctx = m_rgb_network->forward(stream, forward->rgb_network_input, output ? &forward->rgb_network_output : nullptr, use_inference_params, prepare_input_gradients);
 
 		if (train_seg){
-			forward->seg_network_input = forward->density_network_output.slice_rows(0, m_seg_network_input_width);
-			forward->seg_network_ctx = m_seg_network->forward(stream, forward->seg_network_input, &forward->seg_network_output, use_inference_params, prepare_input_gradients); 
-			// forward->seg_network_ctx = m_seg_network->forward(stream, forward->rgb_network_input, output ? &forward->seg_network_output : nullptr, use_inference_params, prepare_input_gradients);
+			forward->seg_network_ctx = m_seg_network->forward(stream, forward->rgb_network_input, output ? &forward->seg_network_output : nullptr, use_inference_params, prepare_input_gradients);
 		}
 
         // output is CM
@@ -320,19 +341,27 @@ public:
 		// Make sure our teporary buffers have the correct size for the given batch size
 		uint32_t batch_size = input.n();
 
-		tcnn::GPUMatrix<T> dL_drgb{m_rgb_network->padded_output_width(), batch_size, stream};
-		CUDA_CHECK_THROW(cudaMemsetAsync(dL_drgb.data(), 0, dL_drgb.n_bytes(), stream));
+		// tcnn::GPUMatrix<T> dL_drgb{m_rgb_network->padded_output_width(), batch_size, stream};
+		// CUDA_CHECK_THROW(cudaMemsetAsync(dL_drgb.data(), 0, dL_drgb.n_bytes(), stream));
+		// tcnn::linear_kernel(extract_rgb<T>, 0, stream,
+		// 	batch_size*3, dL_drgb.m(), dL_doutput.m(), dL_doutput.data(), dL_drgb.data()
+		// );
+
+		// //TODO: Need TO check
+		tcnn::GPUMatrix<T> dL_dseg{m_rgb_network->padded_output_width(), batch_size, stream};
+		CUDA_CHECK_THROW(cudaMemsetAsync(dL_dseg.data(), 0, dL_dseg.n_bytes(), stream));
 		tcnn::linear_kernel(extract_rgb<T>, 0, stream,
-			batch_size*3, dL_drgb.m(), dL_doutput.m(), dL_doutput.data(), dL_drgb.data()
+			batch_size*3, dL_dseg.m(), dL_doutput.m(), dL_doutput.data(), dL_dseg.data()
 		);
 
 		// const tcnn::GPUMatrixDynamic<T> rgb_network_output{(T*)output.data(), m_rgb_network->padded_output_width(), batch_size, output.layout()};
-		tcnn::GPUMatrixDynamic<T> dL_drgb_network_input{m_rgb_network_input_width, batch_size, stream, m_dir_encoding->preferred_output_layout()};
-		m_rgb_network->backward(stream, *forward.rgb_network_ctx, forward.rgb_network_input, forward.rgb_network_output, dL_drgb, &dL_drgb_network_input, use_inference_params, param_gradients_mode);
+		tcnn::GPUMatrixDynamic<T> dL_dseg_network_input{m_rgb_network_input_width, batch_size, stream, m_dir_encoding->preferred_output_layout()};
+		// m_rgb_network->backward(stream, *forward.rgb_network_ctx, forward.rgb_network_input, forward.rgb_network_output, dL_drgb, &dL_drgb_network_input, use_inference_params, param_gradients_mode);
+		m_seg_network->backward(stream, *forward.seg_network_ctx, forward.rgb_network_input, forward.seg_network_output, dL_dseg, &dL_dseg_network_input, use_inference_params, param_gradients_mode);
 
 		// Backprop through dir encoding if it is trainable or if we need input gradients
 		if (m_dir_encoding->n_params() > 0 || dL_dinput) {
-			tcnn::GPUMatrixDynamic<T> dL_ddir_encoding_output = dL_drgb_network_input.slice_rows(m_density_network->padded_output_width(), m_dir_encoding->padded_output_width());
+			tcnn::GPUMatrixDynamic<T> dL_ddir_encoding_output = dL_dseg_network_input.slice_rows(m_density_network->padded_output_width(), m_dir_encoding->padded_output_width());
 			tcnn::GPUMatrixDynamic<float> dL_ddir_encoding_input;
 			if (dL_dinput) {
 				dL_ddir_encoding_input = dL_dinput->slice_rows(m_dir_offset, m_dir_encoding->input_width());
@@ -350,22 +379,8 @@ public:
 			);
 		}
 
-		// Backprop through segmentation network
-		tcnn::GPUMatrix<T> dL_dseg{m_seg_network->padded_output_width(), batch_size, stream};
-		CUDA_CHECK_THROW(cudaMemsetAsync(dL_dseg.data(), 0, dL_dseg.n_bytes(), stream));
-
-		tcnn::GPUMatrixDynamic<T> dL_dseg_network_input{m_seg_network_input_width, batch_size, stream, m_pos_encoding->preferred_output_layout()};
-
 		if (train_seg){
 			// First extract mask
-			tcnn::linear_kernel(extract_mask<T>, 0, stream,
-				n_labels,
-				batch_size, 
-				dL_drgb.m(),  //CM // 16 
-				dL_doutput.m(),  // CM // 16
-				dL_doutput.data() + 4, 
-				dL_dseg.data() 
-			);
 
 			// Layouts:
 			// dL_doutput: AoS and CM
@@ -374,16 +389,15 @@ public:
             // seg network output: AoS and CM
 
 			// Getting the derivatives of dL/dseg_network_input
-			m_seg_network->backward(stream, *forward.seg_network_ctx, forward.seg_network_input, forward.seg_network_output, dL_dseg, &dL_dseg_network_input, use_inference_params, param_gradients_mode);
 		}
-
+		
         debug_print(forward.seg_network_output, forward.seg_network_output.n_bytes(), 0, 1, 16);
 		// debug_print(forward.rgb_network_output, forward.rgb_network_output.n_bytes(), 0, 1, 16);
+
 		// debug_print(dL_dseg_network_input, dL_dseg_network_input.n_bytes(), 0, 1, 16);
-		debug_print(dL_dseg, dL_dseg.n_bytes(), 0, 1, 16);
         // debug_print(forward.seg_network_input, forward.seg_network_output.n_bytes(), 0, 1, 16);
 
-		tcnn::GPUMatrixDynamic<T> dL_ddensity_network_output = dL_drgb_network_input.slice_rows(0, m_density_network->padded_output_width());
+		tcnn::GPUMatrixDynamic<T> dL_ddensity_network_output = dL_dseg_network_input.slice_rows(0, m_density_network->padded_output_width());
 
 		tcnn::linear_kernel(add_density_gradient<T>, 0, stream,
 			batch_size,
@@ -395,13 +409,13 @@ public:
 
 		if (train_seg){
 			// Add the dseg_network_input to the dL_ddensity_network_output
-			tcnn::linear_kernel(add_density_gradient_and_seg_gradient<T>, 0, stream,
-				batch_size,
-				dL_dseg_network_input.layout() == tcnn::RM ? 1 : dL_dseg_network_input.m(), //RM / 1
-				dL_dseg_network_input.data(), //
-				dL_ddensity_network_output.layout() == tcnn::RM ? 1 : dL_ddensity_network_output.stride(), // RM // 1
-				dL_ddensity_network_output.data()
-			);
+			// tcnn::linear_kernel(add_density_gradient_and_seg_gradient<T>, 0, stream,
+			// 	batch_size,
+			// 	dL_dseg_network_input.layout() == tcnn::RM ? 1 : dL_dseg_network_input.m(), //RM / 1
+			// 	dL_dseg_network_input.data(), //
+			// 	dL_ddensity_network_output.layout() == tcnn::RM ? 1 : dL_ddensity_network_output.stride(), // RM // 1
+			// 	dL_ddensity_network_output.data()
+			// );
 
 			//Layouts
 			// dL_doutput: CM

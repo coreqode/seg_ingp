@@ -356,6 +356,15 @@ __device__ vec3 network_to_rgb_vec(const T& val, ENerfActivation activation) {
 	};
 }
 
+template <typename T>
+__device__ vec3 network_to_rgb_vec2(const T& val, ENerfActivation activation) {
+	return {
+		network_to_rgb(float(val[4]), activation),
+		network_to_rgb(float(val[5]), activation),
+		network_to_rgb(float(val[6]), activation),
+	};
+}
+
 __device__ vec3 warp_position(const vec3& pos, const BoundingBox& aabb) {
 	// return {tcnn::logistic(pos.x - 0.5f), tcnn::logistic(pos.y - 0.5f), tcnn::logistic(pos.z - 0.5f)};
 	// return pos;
@@ -1463,7 +1472,7 @@ __global__ void compute_loss_kernel_train_nerf(
 	float EPSILON = 1e-4f;
 
 	vec3 rgb_ray = vec3(0.0f);
-	float mask_ray = 0.0f;
+	vec3 rgb_ray_new = vec3(0.0f);
 	vec3 hitpoint = vec3(0.0f);
 
 	float depth_ray = 0.f;
@@ -1474,18 +1483,19 @@ __global__ void compute_loss_kernel_train_nerf(
 			break;
 		}
 
-		const tcnn::vector_t<tcnn::network_precision_t, 4> local_network_output = *(tcnn::vector_t<tcnn::network_precision_t, 4>*)network_output;
+		const tcnn::vector_t<tcnn::network_precision_t, 7> local_network_output = *(tcnn::vector_t<tcnn::network_precision_t, 7>*)network_output;
 		const vec3 rgb = network_to_rgb_vec(local_network_output, rgb_activation);
+		const vec3 rgb2 = network_to_rgb_vec2(local_network_output, rgb_activation);
 		const vec3 pos = unwarp_position(coords_in.ptr->pos.p, aabb);
 		const float dt = unwarp_dt(coords_in.ptr->dt);
 		float cur_depth = distance(pos, ray_o);
 		float density = network_to_density(float(local_network_output[3]), density_activation);
-		float mask = network_to_mask(float(local_network_output[4]), mask_activation);
+		// float mask = network_to_mask(float(local_network_output[4]), mask_activation);
 
 		const float alpha = 1.f - __expf(-density * dt);
 		const float weight = alpha * T;
 		rgb_ray += weight * rgb;
-		mask_ray+= weight * mask;
+		rgb_ray_new += weight * rgb2;
 		hitpoint += weight * pos;
 		depth_ray += weight * cur_depth;
 		T *= (1.f - alpha);
@@ -1570,8 +1580,7 @@ __global__ void compute_loss_kernel_train_nerf(
 	// loss weightage
 	float wt1 = 1.0f;
 	// float wt2 = mask_loss_weight > 0.0f ? mask_loss_weight : 0.0f;
-    float wt2 = 0.01f;
-	// wt2 = 0.0f;
+    float wt2 = 1.0f;
 
 	LossAndGradient lg = loss_and_gradient(rgbtarget, rgb_ray, loss_type);
 
@@ -1583,37 +1592,15 @@ __global__ void compute_loss_kernel_train_nerf(
 	lg.gradient.z = lg.gradient.z * wt1;
 	lg.loss /= img_pdf * uv_pdf;
 
-	vec3 mask_ray_vec={mask_ray, 0.0f, 0.0f};
+	LossAndGradient lg2 = loss_and_gradient(rgbtarget, rgb_ray_new, loss_type);
 
-	// vec3 targetmask_val = read_mask(uv, resolution, metadata[img].mask);
-	vec3 targetmask_val = {1.0f, 0.0f, 0.0f};
-	vec3 target_mask = {targetmask_val.x, 0.0f, 0.0f};
-
-	LossAndGradient mask_lg = loss_and_gradient(target_mask, mask_ray_vec, ELossType::Huber); 
-
-	// Check if loss is nan
-	// if (isnan(mask_lg.loss.x)){
-	// 	printf("\n mask loss: %f", mask_lg.loss.x);
-	// 	printf("\n mask ray: %f", mask_ray);
-	// 	printf("\n target mask: %f", target_mask.x);
-	// 	printf("Assertion failed! NaN Value Obtained\n"); asm("trap;");
-	// }
-
-	if (isnan(mask_ray)){
-		printf("\n mask loss: %f", mask_lg.loss.x);
-		printf("\n mask ray: %f", mask_ray);
-		printf("\n target mask: %f", target_mask.x);
-		printf("Assertion failed! NaN Value Obtained\n"); asm("trap;");
-	}
-
-	mask_lg.loss.x = mask_lg.loss.x * wt2;
-	mask_lg.loss.y = mask_lg.loss.y * wt2;
-	mask_lg.loss.z = mask_lg.loss.z * wt2;
-	mask_lg.gradient.x = mask_lg.gradient.x * wt2;
-	mask_lg.gradient.y = mask_lg.gradient.y * wt2;
-	mask_lg.gradient.z = mask_lg.gradient.z * wt2;
-	mask_lg.loss /= img_pdf * uv_pdf;
-
+	lg2.loss.x = lg2.loss.x * wt2;
+	lg2.loss.y = lg2.loss.y * wt2;
+	lg2.loss.z = lg2.loss.z * wt2;
+	lg2.gradient.x = lg2.gradient.x * wt2;
+	lg2.gradient.y = lg2.gradient.y * wt2;
+	lg2.gradient.z = lg2.gradient.z * wt2;
+	lg2.loss /= img_pdf * uv_pdf;
 
 	float target_depth = length(rays_in_unnormalized[i].d) * ((depth_supervision_lambda > 0.0f && metadata[img].depth) ? read_depth(uv, resolution, metadata[img].depth) : -1.0f);
 	LossAndGradient lg_depth = loss_and_gradient(vec3(target_depth), vec3(depth_ray), depth_loss_type);
@@ -1626,11 +1613,11 @@ __global__ void compute_loss_kernel_train_nerf(
 	// lg.gradient /= img_pdf * uv_pdf;
 
 	float mean_loss = compAdd(lg.loss) / 3.0f;
-	float mean_mask_loss = compAdd(mask_lg.loss); // Only one value
+	float mean_loss2 = compAdd(lg2.loss) / 3.0f;
 
 
 	if (loss_output) {
-		loss_output[i] = (mean_loss  + mean_mask_loss) / (float)n_rays;
+		loss_output[i] = (mean_loss  + mean_loss2) / (float)n_rays;
 	}
 
 	if (error_map) {
@@ -1668,7 +1655,7 @@ __global__ void compute_loss_kernel_train_nerf(
 
 	// now do it again computing gradients
 	vec3 rgb_ray2 = { 0.f,0.f,0.f };
-	float mask_ray2 = 0.f;
+	vec3 rgb_ray2_new = { 0.f,0.f,0.f };
 	float depth_ray2 = 0.f;
 	T = 1.f;
 
@@ -1687,12 +1674,12 @@ __global__ void compute_loss_kernel_train_nerf(
 		float dt = unwarp_dt(coord_in->dt);
 		const tcnn::vector_t<tcnn::network_precision_t, 4> local_network_output = *(tcnn::vector_t<tcnn::network_precision_t, 4>*)network_output;
 		const vec3 rgb = network_to_rgb_vec(local_network_output, rgb_activation);
+		const vec3 rgb2 = network_to_rgb_vec2(local_network_output, rgb_activation);
 		const float density = network_to_density(float(local_network_output[3]), density_activation);
-		const float mask = network_to_mask(float(local_network_output[4]), mask_activation);
 		const float alpha = 1.f - __expf(-density * dt);
 		const float weight = alpha * T;
 		rgb_ray2 += weight * rgb;
-		mask_ray2 += weight * mask;
+		rgb_ray2_new += weight * rgb2;
 		depth_ray2 += weight * depth;
 		T *= (1.f - alpha);
 
@@ -1701,34 +1688,49 @@ __global__ void compute_loss_kernel_train_nerf(
 		// So rgb_ray2 is the same as rgb_ray, but we are not using all samples for accumulation.
 		// To accompany this in loss, 
 		const vec3 suffix = rgb_ray - rgb_ray2;
-		const float mask_suffix = mask_ray - mask_ray2;
+		const vec3 suffix2 = rgb_ray_new - rgb_ray2_new;
 
 		//rgb_ray - when you use all samples for accumulation
 		//rgb_ray2 - when you discard the samples with low density (prunign)
 
 		const vec3 dloss_by_drgb = weight * lg.gradient;
+		const vec3 dloss_by_drgb2 = weight * lg2.gradient;
 
-		tcnn::vector_t<tcnn::network_precision_t, 5> local_dL_doutput;
+		tcnn::vector_t<tcnn::network_precision_t, 7> local_dL_doutput;
 
 		// chain rule to go from dloss/drgb to dloss/dmlp_output
 		local_dL_doutput[0] = loss_scale * (dloss_by_drgb.x * network_to_rgb_derivative(local_network_output[0], rgb_activation) + fmaxf(0.0f, output_l2_reg * (float)local_network_output[0])); // Penalize way too large color values
 		local_dL_doutput[1] = loss_scale * (dloss_by_drgb.y * network_to_rgb_derivative(local_network_output[1], rgb_activation) + fmaxf(0.0f, output_l2_reg * (float)local_network_output[1]));
 		local_dL_doutput[2] = loss_scale * (dloss_by_drgb.z * network_to_rgb_derivative(local_network_output[2], rgb_activation) + fmaxf(0.0f, output_l2_reg * (float)local_network_output[2]));
 
-		float density_derivative = network_to_density_derivative(float(local_network_output[3]), density_activation);
-		float mask_derivative = network_to_mask_derivative(float(local_network_output[4]), mask_activation);
+		// local_dL_doutput[0] = 0.0f;
+		// local_dL_doutput[1] = 0.0f;
+		// local_dL_doutput[2] = 0.0f;
 
-		// Derivatives for mask
-		const float dloss_by_dmask = weight * mask_lg.gradient.x * mask_derivative;
+
+		local_dL_doutput[4] = loss_scale * (dloss_by_drgb.x * network_to_rgb_derivative(local_network_output[4], rgb_activation) + fmaxf(0.0f, output_l2_reg * (float)local_network_output[4])); // Penalize way too large color values
+		// local_dL_doutput[5] = loss_scale * (dloss_by_drgb.y * network_to_rgb_derivative(local_network_output[5], rgb_activation) + fmaxf(0.0f, output_l2_reg * (float)local_network_output[5]));
+		// local_dL_doutput[6] = loss_scale * (dloss_by_drgb.z * network_to_rgb_derivative(local_network_output[6], rgb_activation) + fmaxf(0.0f, output_l2_reg * (float)local_network_output[6]));
+
+		// local_dL_doutput[4] = 0.0f;
+		local_dL_doutput[5] = 0.0f;
+		local_dL_doutput[6] = 0.0f;
+
+		float density_derivative = network_to_density_derivative(float(local_network_output[3]), density_activation);
 
 		const float depth_suffix = depth_ray - depth_ray2;
 		const float depth_supervision = depth_loss_gradient * (T * depth - depth_suffix);
 
-		const float mask_supervision = mask_lg.gradient.x * (T * mask - mask_suffix);
+		// const float supervision2 = dot(lg.gradient, (T * rgb2 - suffix2));
+		const float supervision2 = 0.0f;
 
 		float dloss_by_dmlp = density_derivative * (
-			dt * (dot(lg.gradient, T * rgb - suffix) + depth_supervision  + mask_supervision)
+			dt * (dot(lg.gradient, T * rgb - suffix) + depth_supervision + supervision2)
 		);
+
+		// float dloss_by_dmlp = density_derivative * (
+		// 	dt * (depth_supervision  + supervision2)
+		// );
 
 		//static constexpr float mask_supervision_strength = 1.f; // we are already 'leaking' mask information into the nerf via the random bg colors; setting this to eg between 1 and  100 encourages density towards 0 in such regions.
 		//dloss_by_dmlp += (texsamp.a<0.001f) ? mask_supervision_strength * weight : 0.f;
@@ -1739,9 +1741,7 @@ __global__ void compute_loss_kernel_train_nerf(
 			(float(local_network_output[3]) > -10.0f && depth < near_distance ? 1e-4f : 0.0f);
 			;
 
-		local_dL_doutput[4] = loss_scale * dloss_by_dmask;
-
-		*(tcnn::vector_t<tcnn::network_precision_t, 5>*)dloss_doutput = local_dL_doutput;
+		*(tcnn::vector_t<tcnn::network_precision_t, 7>*)dloss_doutput = local_dL_doutput;
 
 		dloss_doutput += padded_output_width;
 		network_output += padded_output_width;
