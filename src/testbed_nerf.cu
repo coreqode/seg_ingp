@@ -1570,7 +1570,7 @@ __global__ void compute_loss_kernel_train_nerf(
 	// loss weightage
 	float wt1 = 1.0f;
 	// float wt2 = mask_loss_weight > 0.0f ? mask_loss_weight : 0.0f;
-    float wt2 = 1.0f;
+    float wt2 = 0.01f;
 	// wt2 = 0.0f;
 
 	LossAndGradient lg = loss_and_gradient(rgbtarget, rgb_ray, loss_type);
@@ -1598,6 +1598,13 @@ __global__ void compute_loss_kernel_train_nerf(
 	// 	printf("\n target mask: %f", target_mask.x);
 	// 	printf("Assertion failed! NaN Value Obtained\n"); asm("trap;");
 	// }
+
+	if (isnan(mask_ray)){
+		printf("\n mask loss: %f", mask_lg.loss.x);
+		printf("\n mask ray: %f", mask_ray);
+		printf("\n target mask: %f", target_mask.x);
+		printf("Assertion failed! NaN Value Obtained\n"); asm("trap;");
+	}
 
 	mask_lg.loss.x = mask_lg.loss.x * wt2;
 	mask_lg.loss.y = mask_lg.loss.y * wt2;
@@ -1701,7 +1708,7 @@ __global__ void compute_loss_kernel_train_nerf(
 
 		const vec3 dloss_by_drgb = weight * lg.gradient;
 
-		tcnn::vector_t<tcnn::network_precision_t, 4> local_dL_doutput;
+		tcnn::vector_t<tcnn::network_precision_t, 5> local_dL_doutput;
 
 		// chain rule to go from dloss/drgb to dloss/dmlp_output
 		local_dL_doutput[0] = loss_scale * (dloss_by_drgb.x * network_to_rgb_derivative(local_network_output[0], rgb_activation) + fmaxf(0.0f, output_l2_reg * (float)local_network_output[0])); // Penalize way too large color values
