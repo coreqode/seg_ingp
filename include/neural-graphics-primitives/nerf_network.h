@@ -149,6 +149,7 @@ public:
 		// If take output from the density network rather than position encoding
 		m_seg_network_input_width = tcnn::next_multiple(m_density_network->padded_output_width(), seg_alignment);
 
+		// m_seg_network = m_density_network;
 		json local_seg_network_config = seg_network;
 		local_seg_network_config["n_input_dims"] = m_seg_network_input_width;
 		local_seg_network_config["n_output_dims"] = 16;
@@ -604,44 +605,42 @@ public:
 
 	// Changed
 	std::vector<std::pair<uint32_t, uint32_t>> layer_sizes() const override {
-		// auto layers = m_density_network->layer_sizes();
+		auto layers = m_density_network->layer_sizes();
 		auto rgb_layers = m_rgb_network->layer_sizes();
-		// layers.insert(layers.end(), rgb_layers.begin(), rgb_layers.end());
-		// return layers;
-		// return NULL;
-		return rgb_layers;
+		layers.insert(layers.end(), rgb_layers.begin(), rgb_layers.end());
+		return layers;
 	}
 
 	// Changed
 	uint32_t width(uint32_t layer) const override {
-		// if (layer == 0) {
-		// 	return m_pos_encoding->padded_output_width();
-		// } else if (layer < m_density_network->num_forward_activations() + 1) {
-		// 	return m_density_network->width(layer - 1);
-		// } else if (layer == m_density_network->num_forward_activations() + 1) {
-		// 	return m_rgb_network_input_width;
-		// } else {
-		// 	return m_rgb_network->width(layer - 2 - m_density_network->num_forward_activations());
-		// }
+		if (layer == 0) {
+			return m_pos_encoding->padded_output_width();
+		} else if (layer < m_density_network->num_forward_activations() + 1) {
+			return m_density_network->width(layer - 1);
+		} else if (layer == m_density_network->num_forward_activations() + 1) {
+			return m_rgb_network_input_width;
+		} else {
+			return m_rgb_network->width(layer - 2 - m_density_network->num_forward_activations());
+		}
 	}
 
 	// Changed
 	uint32_t num_forward_activations() const override {
-		// return m_density_network->num_forward_activations() + m_rgb_network->num_forward_activations() + 2;
+		return m_density_network->num_forward_activations() + m_rgb_network->num_forward_activations() + 2;
 	}
 
 	// Changed
 	std::pair<const T*, tcnn::MatrixLayout> forward_activations(const tcnn::Context& ctx, uint32_t layer) const override {
-		// const auto& forward = dynamic_cast<const ForwardContext&>(ctx);
-		// if (layer == 0) {
-		// 	return {forward.density_network_input.data(), m_pos_encoding->preferred_output_layout()};
-		// } else if (layer < m_density_network->num_forward_activations() + 1) {
-		// 	return m_density_network->forward_activations(*forward.density_network_ctx, layer - 1);
-		// } else if (layer == m_density_network->num_forward_activations() + 1) {
-		// 	return {forward.rgb_network_input.data(), m_dir_encoding->preferred_output_layout()};
-		// } else {
-		// 	return m_rgb_network->forward_activations(*forward.rgb_network_ctx, layer - 2 - m_density_network->num_forward_activations());
-		// }
+		const auto& forward = dynamic_cast<const ForwardContext&>(ctx);
+		if (layer == 0) {
+			return {forward.density_network_input.data(), m_pos_encoding->preferred_output_layout()};
+		} else if (layer < m_density_network->num_forward_activations() + 1) {
+			return m_density_network->forward_activations(*forward.density_network_ctx, layer - 1);
+		} else if (layer == m_density_network->num_forward_activations() + 1) {
+			return {forward.rgb_network_input.data(), m_dir_encoding->preferred_output_layout()};
+		} else {
+			return m_rgb_network->forward_activations(*forward.rgb_network_ctx, layer - 2 - m_density_network->num_forward_activations());
+		}
 	}
 
 	const std::shared_ptr<tcnn::Encoding<T>>& pos_encoding() const {
@@ -691,7 +690,6 @@ private:
 	uint32_t m_n_extra_dims; // extra dimensions are assumed to be part of a compound encoding with dir_dims
 	uint32_t m_dir_offset;
     bool train_seg = true;
-    int n_labels = 1;
 
 	// // Storage of forward pass data
 	struct ForwardContext : public tcnn::Context {

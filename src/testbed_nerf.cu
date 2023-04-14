@@ -974,103 +974,103 @@ __global__ void composite_kernel_nerf(
 		vec3 rgb = network_to_rgb_vec(local_network_output, rgb_activation);
 		float mask = network_to_mask(local_network_output[4], mask_activation);
 
-		if (glow_mode) { // random grid visualizations ftw!
-#if 0
-			if (0) {  // extremely startrek edition
-				float glow_y = (pos.y - (glow_y_cutoff - 0.5f)) * 2.f;
-				if (glow_y>1.f) glow_y=max(0.f,21.f-glow_y*20.f);
-				if (glow_y>0.f) {
-					float line;
-					line =max(0.f,cosf(pos.y*2.f*3.141592653589793f * 16.f)-0.95f);
-					line+=max(0.f,cosf(pos.x*2.f*3.141592653589793f * 16.f)-0.95f);
-					line+=max(0.f,cosf(pos.z*2.f*3.141592653589793f * 16.f)-0.95f);
-					line+=max(0.f,cosf(pos.y*4.f*3.141592653589793f * 16.f)-0.975f);
-					line+=max(0.f,cosf(pos.x*4.f*3.141592653589793f * 16.f)-0.975f);
-					line+=max(0.f,cosf(pos.z*4.f*3.141592653589793f * 16.f)-0.975f);
-					glow_y=glow_y*glow_y*0.5f + glow_y*line*25.f;
-					rgb.y+=glow_y;
-					rgb.z+=glow_y*0.5f;
-					rgb.x+=glow_y*0.25f;
-				}
-			}
-#endif
-			float glow = 0.f;
+// 		if (glow_mode) { // random grid visualizations ftw!
+// #if 0
+// 			if (0) {  // extremely startrek edition
+// 				float glow_y = (pos.y - (glow_y_cutoff - 0.5f)) * 2.f;
+// 				if (glow_y>1.f) glow_y=max(0.f,21.f-glow_y*20.f);
+// 				if (glow_y>0.f) {
+// 					float line;
+// 					line =max(0.f,cosf(pos.y*2.f*3.141592653589793f * 16.f)-0.95f);
+// 					line+=max(0.f,cosf(pos.x*2.f*3.141592653589793f * 16.f)-0.95f);
+// 					line+=max(0.f,cosf(pos.z*2.f*3.141592653589793f * 16.f)-0.95f);
+// 					line+=max(0.f,cosf(pos.y*4.f*3.141592653589793f * 16.f)-0.975f);
+// 					line+=max(0.f,cosf(pos.x*4.f*3.141592653589793f * 16.f)-0.975f);
+// 					line+=max(0.f,cosf(pos.z*4.f*3.141592653589793f * 16.f)-0.975f);
+// 					glow_y=glow_y*glow_y*0.5f + glow_y*line*25.f;
+// 					rgb.y+=glow_y;
+// 					rgb.z+=glow_y*0.5f;
+// 					rgb.x+=glow_y*0.25f;
+// 				}
+// 			}
+// #endif
+// 			float glow = 0.f;
 
-			bool green_grid = glow_mode & 1;
-			bool green_cutline = glow_mode & 2;
-			bool mask_to_alpha = glow_mode & 4;
+// 			bool green_grid = glow_mode & 1;
+// 			bool green_cutline = glow_mode & 2;
+// 			bool mask_to_alpha = glow_mode & 4;
 
-			// less used?
-			bool radial_mode = glow_mode & 8;
-			bool grid_mode = glow_mode & 16; // makes object rgb go black!
+// 			// less used?
+// 			bool radial_mode = glow_mode & 8;
+// 			bool grid_mode = glow_mode & 16; // makes object rgb go black!
 
-			{
-				float dist;
-				if (radial_mode) {
-					dist = distance(pos, camera_matrix[3]);
-					dist = min(dist, (4.5f - pos.y) * 0.333f);
-				} else {
-					dist = pos.y;
-				}
+// 			{
+// 				float dist;
+// 				if (radial_mode) {
+// 					dist = distance(pos, camera_matrix[3]);
+// 					dist = min(dist, (4.5f - pos.y) * 0.333f);
+// 				} else {
+// 					dist = pos.y;
+// 				}
 
-				if (grid_mode) {
-					glow = 1.f / max(1.f, dist);
-				} else {
-					float y = glow_y_cutoff - dist; // - (ii*0.005f);
-					float mask = 0.f;
-					if (y > 0.f) {
-						y *= 80.f;
-						mask = min(1.f, y);
-						//if (mask_mode) {
-						//	rgb.x=rgb.y=rgb.z=mask; // mask mode
-						//} else
-						{
-							if (green_cutline) {
-								glow += max(0.f, 1.f - abs(1.f -y)) * 4.f;
-							}
+// 				if (grid_mode) {
+// 					glow = 1.f / max(1.f, dist);
+// 				} else {
+// 					float y = glow_y_cutoff - dist; // - (ii*0.005f);
+// 					float mask = 0.f;
+// 					if (y > 0.f) {
+// 						y *= 80.f;
+// 						mask = min(1.f, y);
+// 						//if (mask_mode) {
+// 						//	rgb.x=rgb.y=rgb.z=mask; // mask mode
+// 						//} else
+// 						{
+// 							if (green_cutline) {
+// 								glow += max(0.f, 1.f - abs(1.f -y)) * 4.f;
+// 							}
 
-							if (y>1.f) {
-								y = 1.f - (y - 1.f) * 0.05f;
-							}
+// 							if (y>1.f) {
+// 								y = 1.f - (y - 1.f) * 0.05f;
+// 							}
 
-							if (green_grid) {
-								glow += max(0.f, y / max(1.f, dist));
-							}
-						}
-					}
-					if (mask_to_alpha) {
-						weight *= mask;
-					}
-				}
-			}
+// 							if (green_grid) {
+// 								glow += max(0.f, y / max(1.f, dist));
+// 							}
+// 						}
+// 					}
+// 					if (mask_to_alpha) {
+// 						weight *= mask;
+// 					}
+// 				}
+// 			}
 
-			if (glow > 0.f) {
-				float line;
-				line  = max(0.f, cosf(pos.y * 2.f * 3.141592653589793f * 16.f) - 0.975f);
-				line += max(0.f, cosf(pos.x * 2.f * 3.141592653589793f * 16.f) - 0.975f);
-				line += max(0.f, cosf(pos.z * 2.f * 3.141592653589793f * 16.f) - 0.975f);
-				line += max(0.f, cosf(pos.y * 4.f * 3.141592653589793f * 16.f) - 0.975f);
-				line += max(0.f, cosf(pos.x * 4.f * 3.141592653589793f * 16.f) - 0.975f);
-				line += max(0.f, cosf(pos.z * 4.f * 3.141592653589793f * 16.f) - 0.975f);
-				line += max(0.f, cosf(pos.y * 8.f * 3.141592653589793f * 16.f) - 0.975f);
-				line += max(0.f, cosf(pos.x * 8.f * 3.141592653589793f * 16.f) - 0.975f);
-				line += max(0.f, cosf(pos.z * 8.f * 3.141592653589793f * 16.f) - 0.975f);
-				line += max(0.f, cosf(pos.y * 16.f * 3.141592653589793f * 16.f) - 0.975f);
-				line += max(0.f, cosf(pos.x * 16.f * 3.141592653589793f * 16.f) - 0.975f);
-				line += max(0.f, cosf(pos.z * 16.f * 3.141592653589793f * 16.f) - 0.975f);
-				if (grid_mode) {
-					glow = /*glow*glow*0.75f + */ glow * line * 15.f;
-					rgb.y = glow;
-					rgb.z = glow * 0.5f;
-					rgb.x = glow * 0.25f;
-				} else {
-					glow = glow * glow * 0.25f + glow * line * 15.f;
-					rgb.y += glow;
-					rgb.z += glow * 0.5f;
-					rgb.x += glow * 0.25f;
-				}
-			}
-		} // glow
+// 			if (glow > 0.f) {
+// 				float line;
+// 				line  = max(0.f, cosf(pos.y * 2.f * 3.141592653589793f * 16.f) - 0.975f);
+// 				line += max(0.f, cosf(pos.x * 2.f * 3.141592653589793f * 16.f) - 0.975f);
+// 				line += max(0.f, cosf(pos.z * 2.f * 3.141592653589793f * 16.f) - 0.975f);
+// 				line += max(0.f, cosf(pos.y * 4.f * 3.141592653589793f * 16.f) - 0.975f);
+// 				line += max(0.f, cosf(pos.x * 4.f * 3.141592653589793f * 16.f) - 0.975f);
+// 				line += max(0.f, cosf(pos.z * 4.f * 3.141592653589793f * 16.f) - 0.975f);
+// 				line += max(0.f, cosf(pos.y * 8.f * 3.141592653589793f * 16.f) - 0.975f);
+// 				line += max(0.f, cosf(pos.x * 8.f * 3.141592653589793f * 16.f) - 0.975f);
+// 				line += max(0.f, cosf(pos.z * 8.f * 3.141592653589793f * 16.f) - 0.975f);
+// 				line += max(0.f, cosf(pos.y * 16.f * 3.141592653589793f * 16.f) - 0.975f);
+// 				line += max(0.f, cosf(pos.x * 16.f * 3.141592653589793f * 16.f) - 0.975f);
+// 				line += max(0.f, cosf(pos.z * 16.f * 3.141592653589793f * 16.f) - 0.975f);
+// 				if (grid_mode) {
+// 					glow = /*glow*glow*0.75f + */ glow * line * 15.f;
+// 					rgb.y = glow;
+// 					rgb.z = glow * 0.5f;
+// 					rgb.x = glow * 0.25f;
+// 				} else {
+// 					glow = glow * glow * 0.25f + glow * line * 15.f;
+// 					rgb.y += glow;
+// 					rgb.z += glow * 0.5f;
+// 					rgb.x += glow * 0.25f;
+// 				}
+// 			}
+// 		} // glow
 
 		if (render_mode == ERenderMode::Normals) {
 			// Network input contains the gradient of the network output w.r.t. input.
@@ -1570,8 +1570,6 @@ __global__ void compute_loss_kernel_train_nerf(
 	// loss weightage
 	float wt1 = 1.0f;
 	float wt2 = mask_loss_weight > 0.0f ? mask_loss_weight : 0.0f;
-    // float wt2 = 1.0f;
-	// wt2 = 0.0f;
 
 	LossAndGradient lg = loss_and_gradient(rgbtarget, rgb_ray, loss_type);
 
@@ -1585,11 +1583,32 @@ __global__ void compute_loss_kernel_train_nerf(
 
 	vec3 mask_ray_vec={mask_ray, 0.0f, 0.0f};
 
-	// vec3 targetmask_val = read_mask(uv, resolution, metadata[img].mask);
-	vec3 targetmask_val = {1.0f, 0.0f, 0.0f};
+	vec4 targetmask_val = read_mask(uv, resolution, metadata[img].mask, metadata[img].image_data_type);
+
+	// vec3 targetmask_val = {1.0f, 0.0f, 0.0f};
+
 	vec3 target_mask = {targetmask_val.x, 0.0f, 0.0f};
 
-	LossAndGradient mask_lg = loss_and_gradient(target_mask, mask_ray_vec, ELossType::BCE); 
+	LossAndGradient mask_lg = loss_and_gradient(target_mask, mask_ray_vec, ELossType::Huber); 
+
+	// if (i==0){
+	// 	printf("\n mask_ray %f", mask_ray);
+	// 	printf("\n target_mask %f", target_mask.x);
+	// 	printf("\n mask_loss %f", mask_lg.loss.x);
+	// }
+
+	// Check whether we are getting valid mask values, 
+	// If passed image instead of mask, it should correspond to the texsamp
+	// if (i==0){
+		// printf("\n mask loss: %f", mask_lg.loss.x);
+		// printf("\n mask ray: %f", mask_ray);
+		// printf("\n target mask x: %f", targetmask_val.x);
+		// printf("\n target rgb x: %f", texsamp.x);
+		// printf("\n target mask y: %f", targetmask_val.y);
+		// printf("\n target rgb y: %f", texsamp.y);
+		// printf("\n target mask z: %f", targetmask_val.z);
+		// printf("\n target rgb z: %f", texsamp.z);
+	// }
 
 	// Check if loss is nan
 	// if (isnan(mask_lg.loss.x)){

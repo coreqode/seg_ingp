@@ -46,7 +46,7 @@ using namespace pybind11::literals; // to bring in the `_a` literal
 NGP_NAMESPACE_BEGIN
 
 
-void Testbed::Nerf::Training::set_image(int frame_idx, pybind11::array_t<float> img, pybind11::array_t<float> depth_img,  pybind11::array_t<float> mask, float depth_scale, int n_labels) {
+void Testbed::Nerf::Training::set_image(int frame_idx, pybind11::array_t<float> img, pybind11::array_t<float> depth_img,  pybind11::array_t<float> mask, int n_labels, float depth_scale) {
 	if (frame_idx < 0 || frame_idx >= dataset.n_images) {
 		throw std::runtime_error{"Invalid frame index"};
 	}
@@ -65,11 +65,15 @@ void Testbed::Nerf::Training::set_image(int frame_idx, pybind11::array_t<float> 
 
 	py::buffer_info mask_buf = mask.request();
 
-	if (mask_buf.ndim == 0) {
-		mask_buf.ptr = nullptr;
+	if (mask_buf.ndim != 3) {
+		throw std::runtime_error{"mask should be (H,W,C) where C=n_labels"};
 	}
 
-	dataset.set_training_image(frame_idx, {img_buf.shape[1], img_buf.shape[0]}, (const void*)img_buf.ptr, (const float*)depth_buf.ptr, (const float*) mask_buf.ptr, depth_scale, n_labels, false, EImageDataType::Float, EDepthDataType::Float);
+	if (mask_buf.shape[2] != n_labels) {
+		throw std::runtime_error{"mask should be (H,W,C) where C=n_labels"};
+	}
+
+	dataset.set_training_image(frame_idx, {img_buf.shape[1], img_buf.shape[0]}, (const void*)img_buf.ptr, (const float*)depth_buf.ptr, (const float*)mask_buf.ptr, depth_scale, n_labels, false, EImageDataType::Float, EDepthDataType::Float);
 }
 
 void Testbed::override_sdf_training_data(py::array_t<float> points, py::array_t<float> distances) {
@@ -647,7 +651,7 @@ PYBIND11_MODULE(pyngp, m) {
 		;
 
 	py::class_<Testbed::Nerf::Training>(nerf, "Training")
-		// .def_readwrite("mask_loss_weight", &Testbed::Nerf::Training::mask_loss_weight)
+		.def_readwrite("mask_loss_weight", &Testbed::Nerf::Training::mask_loss_weight)
 		.def_readwrite("random_bg_color", &Testbed::Nerf::Training::random_bg_color)
 		.def_readwrite("n_images_for_training", &Testbed::Nerf::Training::n_images_for_training)
 		.def_readwrite("linear_colors", &Testbed::Nerf::Training::linear_colors)
@@ -695,9 +699,9 @@ PYBIND11_MODULE(pyngp, m) {
 			py::arg("frame_idx"),
 			py::arg("img"),
 			py::arg("depth_img"),
-			py::arg("mask") = py::none(),
+			py::arg("mask"),
+			py::arg("n_labels"),
 			py::arg("depth_scale")=1.0f,
-			py::arg("n_labels")=1,
 			"set one of the training images. must be a floating point numpy array of (H,W,C) with 4 channels; linear color space; W and H must match image size of the rest of the dataset"
 		)
 		;

@@ -18,6 +18,7 @@
 #include <neural-graphics-primitives/nerf_loader.h>
 #include <neural-graphics-primitives/thread_pool.h>
 #include <neural-graphics-primitives/tinyexr_wrapper.h>
+#include <neural-graphics-primitives/debug.h>
 
 #include <filesystem/path.h>
 
@@ -81,6 +82,13 @@ __global__ void copy_depth(const uint64_t num_elements, float* __restrict__ dept
 	} else {
 		depth_dst[i] = depth_pixels[i] * depth_scale;
 	}
+}
+
+template <typename T>
+__global__ void copy_mask(const uint64_t num_elements, float* __restrict__ mask_dst, const T* __restrict__ mask_pixels) {
+	const uint64_t i = threadIdx.x + blockIdx.x * blockDim.x;
+	if (i >= num_elements) return;
+	mask_dst[i] = mask_pixels[i];
 }
 
 template <typename T>
@@ -778,6 +786,7 @@ void NerfDataset::set_training_image(int frame_idx, const ivec2& image_resolutio
 	GPUMemory<uint8_t> mask_tmp;
 
 	if (!image_data_on_gpu && image_type == EImageDataType::Byte) {
+		// Does not go in this if statement
 		images_data_gpu_tmp.resize(img_size * image_type_stride);
 		images_data_gpu_tmp.copy_from_host((uint8_t*)pixels);
 		pixels = images_data_gpu_tmp.data();
@@ -788,11 +797,11 @@ void NerfDataset::set_training_image(int frame_idx, const ivec2& image_resolutio
 			depth_pixels = depth_tmp.data();
 		}
 
-		if (mask_pixels != nullptr){
-			mask_tmp.resize(mask_size * image_type_size(image_type));
-			mask_tmp.copy_from_host((uint8_t*)mask_pixels);
-			mask_pixels = mask_tmp.data();
-		}
+		// if (mask_pixels){
+		// 	mask_tmp.resize(mask_size * image_type_size(image_type));
+		// 	mask_tmp.copy_from_host((uint8_t*)mask_pixels);
+		// 	mask_pixels = mask_tmp.data();
+		// }
 
 		image_data_on_gpu = true;
 	}
@@ -831,6 +840,7 @@ void NerfDataset::set_training_image(int frame_idx, const ivec2& image_resolutio
 	// Load masks to the mask_memory
 	if (mask_pixels != nullptr){
 		maskmemory[frame_idx].resize(mask_size); // TODO: Check if this is correct
+
 		float* mask_dst = maskmemory[frame_idx].data();
 
 		if (mask_pixels && !image_data_on_gpu) {
@@ -841,8 +851,10 @@ void NerfDataset::set_training_image(int frame_idx, const ivec2& image_resolutio
 
 		switch (image_type) {
 			default: throw std::runtime_error{"unknown mask type in set_training_image"};
-			case EImageDataType::Float: CUDA_CHECK_THROW(cudaMemcpy(mask_dst, mask_pixels, mask_size * image_type_size(image_type), image_data_on_gpu ? cudaMemcpyDeviceToDevice : cudaMemcpyHostToDevice)); break;
+			// case EImageDataType::Float: CUDA_CHECK_THROW(cudaMemcpy(mask_dst, mask_pixels, mask_size * image_type_size(image_type), image_data_on_gpu ? cudaMemcpyDeviceToDevice : cudaMemcpyHostToDevice)); break;
+			case EImageDataType::Float: linear_kernel(copy_mask<float>, 0, nullptr, mask_size, mask_dst, (const float*)mask_pixels); break;
 		}
+
 	} else {
 		maskmemory[frame_idx].free_memory();
 	}

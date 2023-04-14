@@ -50,15 +50,21 @@ void debug_print(const GPUMatrixDynamic<T> &device_array, int num_bytes, int sta
 
 
 template <typename T>
-void debug_print_ptr(T* device_array, int num_bytes, int stride =1, int n_elements = 0){
+void debug_print_ptr(T* device_array, int num_bytes, int stride =1, int n_elements = 0, bool device = true){
 	T* host_array = (T*)malloc(num_bytes);
 
+    if (device){
     CUDA_CHECK_THROW(cudaMemcpy(
         host_array,
         device_array,
         num_bytes,
         cudaMemcpyDeviceToHost
     ));
+    }
+    else{
+        host_array = device_array;
+    }
+
 
     if (host_array != NULL){
         printf("host_array is not NULL\n");
