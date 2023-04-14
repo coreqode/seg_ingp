@@ -953,7 +953,7 @@ __global__ void composite_kernel_nerf(
 	uint32_t j = 0;
 
 	for (; j < actual_n_steps; ++j) {
-		tcnn::vector_t<tcnn::network_precision_t, 4> local_network_output;
+		tcnn::vector_t<tcnn::network_precision_t, 5> local_network_output;
 		local_network_output[0] = network_output[i + j * n_elements + 0 * stride];
 		local_network_output[1] = network_output[i + j * n_elements + 1 * stride];
 		local_network_output[2] = network_output[i + j * n_elements + 2 * stride];
@@ -1474,7 +1474,7 @@ __global__ void compute_loss_kernel_train_nerf(
 			break;
 		}
 
-		const tcnn::vector_t<tcnn::network_precision_t, 6> local_network_output = *(tcnn::vector_t<tcnn::network_precision_t, 6>*)network_output;
+		const tcnn::vector_t<tcnn::network_precision_t, 5> local_network_output = *(tcnn::vector_t<tcnn::network_precision_t, 5>*)network_output;
 		const vec3 rgb = network_to_rgb_vec(local_network_output, rgb_activation);
 		const vec3 pos = unwarp_position(coords_in.ptr->pos.p, aabb);
 		const float dt = unwarp_dt(coords_in.ptr->dt);
@@ -1569,8 +1569,8 @@ __global__ void compute_loss_kernel_train_nerf(
 
 	// loss weightage
 	float wt1 = 1.0f;
-	// float wt2 = mask_loss_weight > 0.0f ? mask_loss_weight : 0.0f;
-    float wt2 = 1.0f;
+	float wt2 = mask_loss_weight > 0.0f ? mask_loss_weight : 0.0f;
+    // float wt2 = 1.0f;
 	// wt2 = 0.0f;
 
 	LossAndGradient lg = loss_and_gradient(rgbtarget, rgb_ray, loss_type);

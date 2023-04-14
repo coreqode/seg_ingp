@@ -582,7 +582,7 @@ public:
 	float m_bounding_radius = 1;
 	float m_exposure = 0.f;
 
-	ERenderMode m_render_mode = ERenderMode::Shade;
+	ERenderMode m_render_mode = ERenderMode::Segment;
 	EMeshRenderMode m_mesh_render_mode = EMeshRenderMode::VertexNormals;
 
 	uint32_t m_seed = 1337;
@@ -708,7 +708,7 @@ public:
 			uint32_t n_steps_since_error_map_update = 0;
 			uint32_t n_rays_since_error_map_update = 0;
 
-			float mask_loss_weight = 0.0f;
+			float mask_loss_weight = 1.0f;
 
 			float near_distance = 0.1f;
 			float density_grid_decay = 0.95f;
